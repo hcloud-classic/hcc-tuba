@@ -50,10 +50,6 @@ build:
   stage: build
   script:
     - make
-    - sudo /usr/sbin/service tuba stop
-    - sudo cp $PWD/tuba /bin/tuba
-    - sudo chmod 755 /bin/tuba
-    - sudo /usr/sbin/service tuba start
     - echo "Finished"
 #  only:
 #  - master
