@@ -2,6 +2,7 @@ package dao
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/hcloud-classic/hcc_errors"
 	"github.com/hcloud-classic/pb"
 	"github.com/mitchellh/go-ps"
@@ -10,19 +11,26 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 )
 
 func getCPUUsage(pid int) string {
-	cmd := exec.Command("bash", "-c", "ps up "+strconv.Itoa(pid)+" | tail -n1 | grep -iv \"%CPU\" | tr -s ' ' | cut -f3 -d' '")
+	cmd := exec.Command("bash", "-c",
+		"ps up "+strconv.Itoa(pid)+" | tail -n1 | grep -iv \"%CPU\" | tr -s ' ' | cut -f3 -d' '")
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return "error"
 	}
 
-	return string(out)
+	trim := strings.TrimSpace(string(out))
+	trimFloat, _ := strconv.ParseFloat(trim, 2)
+	calcUsage := trimFloat / float64(runtime.NumCPU())
+	value := fmt.Sprintf("%.1f", calcUsage)
+
+	return value
 }
 
 func readProcFile(filename string) ([]byte, error) {
@@ -47,25 +55,23 @@ func readProcFile(filename string) ([]byte, error) {
 func getStatFromProc(pid int) string {
 	data, err := readProcFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
-		return ""
+		return "error"
 	}
 	if data == nil {
-		logger.Logger.Println("failed to read stat data (PID: " + strconv.Itoa(pid))
-		return ""
+		return "error"
 	}
 
 	// Parse out data after (<cmd name>)
 	i := bytes.LastIndex(data, []byte(")"))
 	if i == -1 {
-		logger.Logger.Println("failed to read stat data (PID: " + strconv.Itoa(pid))
-		return ""
+		return "error"
 	}
 	data = data[i+2:]
 
 	stats := bytes.Fields(data)
 	if len(stats) < 3 {
-		logger.Logger.Println("wrong stat data (PID: " + strconv.Itoa(pid))
-		return ""
+		logger.Logger.Println("wrong stat data (PID: " + strconv.Itoa(pid) + ")")
+		return "error"
 	}
 
 	switch stats[0][0] {
@@ -93,13 +99,12 @@ func getStatFromProc(pid int) string {
 }
 
 func getProcData(pid int, procData string) string {
-	data, err := readProcFile("/proc/" + strconv.Itoa(pid) + "/procData")
+	data, err := readProcFile("/proc/" + strconv.Itoa(pid) + "/" + procData)
 	if err != nil {
-		return ""
+		return "error"
 	}
 	if data == nil {
-		logger.Logger.Println("failed to read " + procData + " data (PID: " + strconv.Itoa(pid))
-		return ""
+		return "error"
 	}
 
 	value := strings.TrimSpace(string(data))
@@ -162,11 +167,14 @@ func ReadProcessList(in *pb.ReqGetProcessList) (*pb.ResGetProcessList, uint64, s
 	for _, process := range pList {
 		processPID := process.Pid()
 		p := pb.Process{
-			PID:      int64(processPID),
-			PPID:     int64(process.PPid()),
-			EXE:      process.Executable(),
-			CPUUsage: getCPUUsage(process.Pid()),
-			Stat:     getStatFromProc(process.Pid()),
+			PID:       int64(processPID),
+			PPID:      int64(process.PPid()),
+			EXE:       process.Executable(),
+			CPUUsage:  getCPUUsage(process.Pid()),
+			Stat:      getStatFromProc(process.Pid()),
+			EPMType:   "NOT_SUPPORTED",
+			EPMSource: 0,
+			EPMTarget: 0,
 		}
 
 		if syscheck.EPMProcSupported {
@@ -175,10 +183,6 @@ func ReadProcessList(in *pb.ReqGetProcessList) (*pb.ResGetProcessList, uint64, s
 			p.EPMSource = int64(src)
 			target, _ := strconv.Atoi(getProcData(processPID, "epm_target"))
 			p.EPMTarget = int64(target)
-		} else {
-			p.EPMType = "NOT_SUPPORTED"
-			p.EPMSource = 0
-			p.EPMTarget = 0
 		}
 
 		if pidOk && pid != p.PID {
