@@ -6,7 +6,6 @@ import (
 	"github.com/hcloud-classic/pb"
 	"hcc/tuba/action/grpc/errconv"
 	"hcc/tuba/dao"
-	"hcc/tuba/lib/logger"
 )
 
 type tubaServer struct {
@@ -14,8 +13,6 @@ type tubaServer struct {
 }
 
 func (s *tubaServer) GetProcessList(_ context.Context, in *pb.ReqGetProcessList) (*pb.ResGetProcessList, error) {
-	logger.Logger.Println("Request received: GetProcessList()")
-
 	resGetProcessList, errCode, errStr := dao.ReadProcessList(in)
 	if errCode != 0 {
 		errStack := hcc_errors.NewHccErrorStack(hcc_errors.NewHccError(errCode, errStr))
