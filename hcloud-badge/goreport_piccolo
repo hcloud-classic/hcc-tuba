@@ -1,0 +1,73 @@
+Grade: A+ (96.4%)
+Files: 101
+Issues: 20
+gofmt: 100%
+go_vet: 93%
+	action/grpc/client/pianoClient.go
+		Line 6: error: package hcc/piccolo/action/grpc/pb/rpcpiano is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcpiano) (vet)
+	action/grpc/server/init.go
+		Line 6: error: package hcc/piccolo/action/grpc/pb/rpcpiccolo is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcpiccolo) (vet)
+	action/grpc/client/novncClient.go
+		Line 11: error: package hcc/piccolo/action/grpc/pb/rpcviolin_novnc is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcviolin_novnc) (vet)
+	action/grpc/client/celloClient.go
+		Line 5: error: package hcc/piccolo/action/grpc/pb/rpccello is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpccello) (vet)
+	action/grpc/client/fluteClient.go
+		Line 6: error: package hcc/piccolo/action/grpc/pb/rpcflute is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcflute) (vet)
+		Line 7: error: package hcc/piccolo/action/grpc/pb/rpcviolin is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcviolin) (vet)
+	action/grpc/client/harpClient.go
+		Line 6: error: package hcc/piccolo/action/grpc/pb/rpcharp is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcharp) (vet)
+	action/grpc/errconv/errconv.go
+		Line 4: error: package hcc/piccolo/action/grpc/pb/rpcmsgType is not in GOROOT (/opt/go/src/hcc/piccolo/action/grpc/pb/rpcmsgType) (vet)
+gocyclo: 97%
+	action/graphql/queryparser/fluteParser.go
+		Line 52: warning: cyclomatic complexity 18 of function ListNode() is high (> 15) (gocyclo)
+	action/graphql/queryparser/violinParser.go
+		Line 29: warning: cyclomatic complexity 17 of function ListServer() is high (> 15) (gocyclo)
+	action/graphql/queryparser/harpParser.go
+		Line 32: warning: cyclomatic complexity 16 of function ListSubnet() is high (> 15) (gocyclo)
+golint: 91%
+	lib/errors/errors.go
+		Line 57: warning: exported const UUIDGenerationError should have comment (or a comment on this block) or be unexported (golint)
+		Line 165: warning: exported function SetErrLogger should have comment or be unexported (golint)
+		Line 171: warning: exported type HccError should have comment or be unexported (golint)
+		Line 176: warning: exported function NewHccError should have comment or be unexported (golint)
+		Line 183: warning: exported method HccError.New should have comment or be unexported (golint)
+		Line 191: warning: exported method HccError.Code should have comment or be unexported (golint)
+		Line 195: warning: exported method HccError.Text should have comment or be unexported (golint)
+		Line 199: warning: exported method HccError.ToString should have comment or be unexported (golint)
+		Line 207: warning: exported method HccError.Println should have comment or be unexported (golint)
+		Line 211: warning: exported method HccError.Fatal should have comment or be unexported (golint)
+		Line 217: warning: exported type HccErrorStack should have comment or be unexported (golint)
+		Line 219: warning: exported function NewHccErrorStack should have comment or be unexported (golint)
+		Line 228: warning: exported method HccErrorStack.Len should have comment or be unexported (golint)
+		Line 236: warning: exported method HccErrorStack.Pop should have comment or be unexported (golint)
+		Line 246: warning: exported method HccErrorStack.Push should have comment or be unexported (golint)
+		Line 250: warning: comment on exported method HccErrorStack.Dump should be of the form "Dump ..." (golint)
+		Line 272: warning: exported method HccErrorStack.ConvertReportForm should have comment or be unexported (golint)
+	lib/errors/harp.go
+		Line 4: warning: exported const HarpInternalInitFail should have comment (or a comment on this block) or be unexported (golint)
+	lib/errors/middleware.go
+		Line 3: warning: comment on exported function ReturnHccErrorPiccolo should be of the form "ReturnHccErrorPiccolo ..." (golint)
+		Line 8: warning: comment on exported function ReturnHccEmptyErrorPiccolo should be of the form "ReturnHccEmptyErrorPiccolo ..." (golint)
+	lib/errors/piano.go
+		Line 4: warning: exported const PianoInternalInitFail should have comment (or a comment on this block) or be unexported (golint)
+	lib/errors/piccolo.go
+		Line 4: warning: exported const PiccoloInternalInitFail should have comment (or a comment on this block) or be unexported (golint)
+	action/grpc/errconv/errconv.go
+		Line 8: warning: exported function GrpcToHcc should have comment or be unexported (golint)
+		Line 12: warning: exported function HccToGrpc should have comment or be unexported (golint)
+		Line 16: warning: exported function GrpcStackToHcc should have comment or be unexported (golint)
+		Line 29: warning: exported function HccStackToGrpc should have comment or be unexported (golint)
+	lib/errors/clarinet.go
+		Line 4: warning: exported const ClarinetInternalInitFail should have comment (or a comment on this block) or be unexported (golint)
+	lib/errors/flute.go
+		Line 4: warning: exported const FluteInternalInitFail should have comment (or a comment on this block) or be unexported (golint)
+	lib/errors/violin.go
+		Line 4: warning: exported const ViolinInternalInitFail should have comment (or a comment on this block) or be unexported (golint)
+ineffassign: 98%
+	action/graphql/queryparser/piccoloParser.go
+		Line 251: warning: ineffectual assignment to err (ineffassign)
+	lib/sqlite/serveractions/serverActions.go
+		Line 116: warning: ineffectual assignment to err (ineffassign)
+license: 100%
+misspell: 100%
