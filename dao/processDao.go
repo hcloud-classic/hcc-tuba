@@ -83,7 +83,7 @@ func getStatFromProc(pid int) string {
 	case 'D':
 		return "blocked"
 	case 'Z':
-		return "zombies"
+		return "zombie"
 	case 'X':
 		return "dead"
 	case 'T', 't':
