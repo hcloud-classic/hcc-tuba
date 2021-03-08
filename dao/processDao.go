@@ -6,6 +6,7 @@ import (
 	"github.com/hcloud-classic/hcc_errors"
 	"github.com/hcloud-classic/pb"
 	"github.com/mitchellh/go-ps"
+	"hcc/tuba/lib/fileutil"
 	"hcc/tuba/lib/logger"
 	"hcc/tuba/lib/syscheck"
 	"io/ioutil"
@@ -98,6 +99,10 @@ func getStatFromProc(pid int) string {
 	}
 }
 
+func isProcExist(pid int) bool {
+	return fileutil.IsFileOrDirectoryExist("/proc/" + strconv.Itoa(pid))
+}
+
 func getProcData(pid int, procData string) string {
 	data, err := readProcFile("/proc/" + strconv.Itoa(pid) + "/" + procData)
 	if err != nil {
@@ -166,6 +171,11 @@ func ReadProcessList(in *pb.ReqGetProcessList) (*pb.ResGetProcessList, uint64, s
 
 	for _, process := range pList {
 		processPID := process.Pid()
+
+		if !isProcExist(processPID) {
+			continue
+		}
+
 		p := pb.Process{
 			PID:       int64(processPID),
 			PPID:      int64(process.PPid()),
