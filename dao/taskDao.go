@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -88,21 +89,13 @@ func getTotalCPUUsage(tasks []model.Task) string {
 	var usage float64 = 0
 
 	for _, task := range tasks {
-		cmd := exec.Command("sh", "-c",
-			"ps up "+strconv.Itoa(task.PID)+" | tail -n1 | grep -iv \"%CPU\" | tr -s ' ' | cut -f3 -d' '")
-		out, err := cmd.Output()
-		if err != nil {
-			return "error"
-		}
+		taskCPUUsage := task.CPUUsage[:len(task.CPUUsage) - 1]
+		usageFloat, _ := strconv.ParseFloat(taskCPUUsage, 2)
 
-		trim := strings.TrimSpace(string(out))
-		trimFloat, _ := strconv.ParseFloat(trim, 2)
-
-		usage += trimFloat
+		usage += usageFloat
 	}
 
-	calcUsage := usage / float64(runtime.NumCPU())
-	value := fmt.Sprintf("%.1f", calcUsage)
+	value := fmt.Sprintf("%.1f", usage)
 
 	return value + "%"
 }
@@ -441,123 +434,143 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 		return nil, hcc_errors.HccErrorTestCode, err.Error()
 	}
 
+	var wait sync.WaitGroup
+
+	wait.Add(len(pList))
 	for _, process := range pList {
-		processPID := process.Pid()
+		go func(routineProcess ps.Process, routineModelTaskList *[]model.Task) {
+			var task model.Task
+			var err error
 
-		if !isProcExist(processPID) {
-			continue
-		}
+			processPID := routineProcess.Pid()
 
-		task := model.Task{
-			CMD:        process.Executable(),
-			State:      "",
-			PID:        processPID,
-			PPID:       process.PPid(),
-			PGID:       0,
-			SID:        0,
-			Priority:   0,
-			Nice:       0,
-			NumThreads: 0,
-			StartTime:  getStartTime(processPID),
-			Children:   emptyTaskList,
-			Threads:    emptyTaskList,
-			CPUUsage:   getCPUUsage(processPID),
-			MemUsage:   "0KB",
-			EPMType:    "NOT_SUPPORTED",
-			EPMSource:  0,
-			EPMTarget:  0,
-		}
-		task.MemUsage = getMemUsage(&task, false)
-
-		err := getStatFromProc(processPID, &task)
-		if err != nil {
-			fmt.Printf("getStatFromProc(): PID: %d, Error: %s\n", processPID, err.Error())
-			continue
-		}
-
-		if syscheck.EPMProcSupported {
-			task.EPMType = getProcData(processPID, "epm_type")
-			src, _ := strconv.Atoi(getProcData(processPID, "epm_source"))
-			task.EPMSource = src
-			target, _ := strconv.Atoi(getProcData(processPID, "epm_target"))
-			task.EPMTarget = target
-		}
-
-		if cmdOk && cmd != task.CMD {
-			continue
-		}
-		if stateOk && state != task.State {
-			continue
-		}
-		if pidOk && pid != task.PID {
-			continue
-		}
-		if ppidOk && ppid != task.PPID {
-			continue
-		}
-		if pgidOk && pgid != task.PGID {
-			continue
-		}
-		if sidOk && sid != task.SID {
-			continue
-		}
-		if priorityOk && priority != task.Priority {
-			continue
-		}
-		if niceOk && nice != task.Nice {
-			continue
-		}
-		if numThreadsOk && numThreads != task.NumThreads {
-			continue
-		}
-
-		if syscheck.EPMProcSupported {
-			if epmTypeOk && epmType != task.EPMType {
-				continue
+			if !isProcExist(processPID) {
+				goto OUT
 			}
-			if epmSourceOk && epmSource != task.EPMSource {
-				continue
-			}
-			if epmTargetOk && epmTarget != task.EPMTarget {
-				continue
-			}
-		}
 
-		modelTaskList = append(modelTaskList, task)
+			task = model.Task{
+				CMD:        routineProcess.Executable(),
+				State:      "",
+				PID:        processPID,
+				PPID:       routineProcess.PPid(),
+				PGID:       0,
+				SID:        0,
+				Priority:   0,
+				Nice:       0,
+				NumThreads: 0,
+				StartTime:  getStartTime(processPID),
+				Children:   emptyTaskList,
+				Threads:    emptyTaskList,
+				CPUUsage:   getCPUUsage(processPID),
+				MemUsage:   "0KB",
+				EPMType:    "NOT_SUPPORTED",
+				EPMSource:  0,
+				EPMTarget:  0,
+			}
+			task.MemUsage = getMemUsage(&task, false)
+
+			err = getStatFromProc(processPID, &task)
+			if err != nil {
+				fmt.Printf("getStatFromProc(): PID: %d, Error: %s\n", processPID, err.Error())
+				goto OUT
+			}
+
+			if syscheck.EPMProcSupported {
+				task.EPMType = getProcData(processPID, "epm_type")
+				src, _ := strconv.Atoi(getProcData(processPID, "epm_source"))
+				task.EPMSource = src
+				target, _ := strconv.Atoi(getProcData(processPID, "epm_target"))
+				task.EPMTarget = target
+			}
+
+			if cmdOk && cmd != task.CMD {
+				goto OUT
+			}
+			if stateOk && state != task.State {
+				goto OUT
+			}
+			if pidOk && pid != task.PID {
+				goto OUT
+			}
+			if ppidOk && ppid != task.PPID {
+				goto OUT
+			}
+			if pgidOk && pgid != task.PGID {
+				goto OUT
+			}
+			if sidOk && sid != task.SID {
+				goto OUT
+			}
+			if priorityOk && priority != task.Priority {
+				goto OUT
+			}
+			if niceOk && nice != task.Nice {
+				goto OUT
+			}
+			if numThreadsOk && numThreads != task.NumThreads {
+				goto OUT
+			}
+
+			if syscheck.EPMProcSupported {
+				if epmTypeOk && epmType != task.EPMType {
+					goto OUT
+				}
+				if epmSourceOk && epmSource != task.EPMSource {
+					goto OUT
+				}
+				if epmTargetOk && epmTarget != task.EPMTarget {
+					goto OUT
+				}
+			}
+
+			*routineModelTaskList = append(*routineModelTaskList, task)
+		OUT:
+			wait.Done()
+		}(process, &modelTaskList)
 	}
+	wait.Wait()
 
+	wait.Add(len(modelTaskList))
 	for i := range modelTaskList {
-		parent := findTaskByPPID(modelTaskList, modelTaskList[i].PPID)
-		if parent == nil {
-			continue
-		}
+		go func(routineModelTaskList []model.Task, routineI int) {
+			var threadsPIDs []int
 
-		for i := range modelTaskList {
-			if modelTaskList[i].PPID == modelTaskList[i].PID {
-				continue
+			parent := findTaskByPPID(routineModelTaskList, routineModelTaskList[routineI].PPID)
+
+			if parent == nil {
+				goto OUT
 			}
 
-			if parent.PID == modelTaskList[i].PPID {
-				parent.Children = append(parent.Children, modelTaskList[i])
-			}
-		}
+			for i := range routineModelTaskList {
+				if routineModelTaskList[i].PPID == routineModelTaskList[i].PID {
+					continue
+				}
 
-		threadsPIDs, err := getThreadsPIDs(modelTaskList[i].PID)
-		if err != nil {
-			fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", modelTaskList[i].PID, err.Error())
-		}
-
-		for _, threadPID := range threadsPIDs {
-			thread := findTaskByPID(modelTaskList, threadPID)
-			if thread == nil {
-				continue
+				if parent.PID == routineModelTaskList[i].PPID {
+					parent.Children = append(parent.Children, routineModelTaskList[i])
+				}
 			}
 
-			modelTaskList[i].Threads = append(modelTaskList[i].Threads, *thread)
-		}
+			threadsPIDs, err = getThreadsPIDs(routineModelTaskList[routineI].PID)
+			if err != nil {
+				fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", routineModelTaskList[routineI].PID, err.Error())
+			}
 
-		pTasks = append(pTasks, modelTaskToPbTask(&modelTaskList[i], false))
+			for _, threadPID := range threadsPIDs {
+				thread := findTaskByPID(routineModelTaskList, threadPID)
+				if thread == nil {
+					continue
+				}
+
+				routineModelTaskList[routineI].Threads = append(routineModelTaskList[routineI].Threads, *thread)
+			}
+
+			pTasks = append(pTasks, modelTaskToPbTask(&routineModelTaskList[routineI], false))
+		OUT:
+			wait.Done()
+		}(modelTaskList, i)
 	}
+	wait.Wait()
 
 	taskList.Tasks = pTasks
 	taskList.TotalTasks = int64(len(modelTaskList))
