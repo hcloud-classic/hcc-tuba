@@ -107,9 +107,9 @@ func getTotalCPUUsage(tasks []model.Task) string {
 	return value + "%"
 }
 
-func getMemUsage(pid int, getByKB bool) string {
+func getMemUsage(task *model.Task, getByKB bool) string {
 	cmd := exec.Command("sh", "-c",
-		"cat /proc/"+strconv.Itoa(pid)+"/status | grep -iw VmRSS | tr -d '\\t' | tr -s ' ' | cut -f2 -d' '")
+		"cat /proc/"+strconv.Itoa(task.PID)+"/status | grep -iw VmRSS | tr -d '\\t' | tr -s ' ' | cut -f2 -d' '")
 	out, err := cmd.Output()
 	if err != nil {
 		return "error"
@@ -146,90 +146,104 @@ func getMemUsage(pid int, getByKB bool) string {
 	return strconv.Itoa(int(vmRssKB)) + "KB"
 }
 
-func getTotalMemUsage(getByKB bool) string {
-	var memTotalKB int64 = 0
-
-	processes, err := ps.Processes()
+func getMemInfo(content string) (int64, error) {
+	cmd := exec.Command("sh", "-c",
+		"cat /proc/meminfo | grep -iw "+content+" | tr -s ' ' | cut -f2 -d' '")
+	out, err := cmd.Output()
 	if err != nil {
-		return "error"
+		return 0, err
 	}
 
-	for _, process := range processes {
-		memUsage := getMemUsage(process.Pid(), true)
-		vmRssKB, err := strconv.ParseInt(memUsage[:len(memUsage)-2], 0, 64)
-		if err != nil {
-			continue
-		}
-
-		memTotalKB += vmRssKB
+	val, err := strconv.ParseInt(strings.TrimSpace(string(out)), 0, 64)
+	if err != nil {
+		return 0, err
 	}
 
-	if !getByKB && memTotalKB > 999 {
-		dot := memTotalKB % 1024
-		memTotalMB := float32(memTotalKB) / 1024
+	return val, nil
+}
+
+// getTotalMemUsage : Return total memory usage by parsed string and KB int
+func getTotalMemUsage() (string, int64) {
+	memTotal, err := getMemInfo("MemTotal")
+	if err != nil {
+		return "error", 0
+	}
+	memFree, err := getMemInfo("MemFree")
+	if err != nil {
+		return "error", 0
+	}
+	buffers, err := getMemInfo("Buffers")
+	if err != nil {
+		return "error", 0
+	}
+	cached, err := getMemInfo("Cached")
+	if err != nil {
+		return "error", 0
+	}
+
+	totalMemUsageKB := memTotal - (memFree + buffers + cached)
+
+	if totalMemUsageKB > 999 {
+		dot := totalMemUsageKB % 1024
+		memTotalMB := float32(totalMemUsageKB) / 1024
 		if memTotalMB > 999 {
 			memTotalGB := memTotalMB / 1024
 			if memTotalGB > 999 {
 				memTotalTB := memTotalGB / 1024
 				if dot != 0 {
-					return fmt.Sprintf("%.2f", memTotalTB) + "TB"
+					return fmt.Sprintf("%.2f", memTotalTB) + "TB", totalMemUsageKB
 				}
 
-				return strconv.Itoa(int(memTotalTB)) + "TB"
+				return strconv.Itoa(int(memTotalTB)) + "TB", totalMemUsageKB
 			}
 			if dot != 0 {
-				return fmt.Sprintf("%.2f", memTotalGB) + "GB"
+				return fmt.Sprintf("%.2f", memTotalGB) + "GB", totalMemUsageKB
 			}
 
-			return strconv.Itoa(int(memTotalGB)) + "GB"
+			return strconv.Itoa(int(memTotalGB)) + "GB", totalMemUsageKB
 		}
 		if dot != 0 {
-			return fmt.Sprintf("%.2f", memTotalMB) + "MB"
+			return fmt.Sprintf("%.2f", memTotalMB) + "MB", totalMemUsageKB
 		}
 
-		return strconv.Itoa(int(memTotalMB)) + "MB"
+		return strconv.Itoa(int(memTotalMB)) + "MB", totalMemUsageKB
 	}
 
-	return strconv.Itoa(int(memTotalKB)) + "KB"
+	return strconv.Itoa(int(totalMemUsageKB)) + "KB", totalMemUsageKB
 }
 
-func getTotalMem(getByKB bool) string {
+// getTotalMem : Return total memory by parsed string and KB int
+func getTotalMem() (string, int64) {
 	cmd := exec.Command("sh", "-c",
 		"cat /proc/meminfo | grep -iw MemTotal | tr -s ' ' | cut -f2 -d' '")
 	out, err := cmd.Output()
 	if err != nil {
-		return "error"
+		return "error", 0
 	}
 
 	val := strings.TrimSpace(string(out))
 	memKB, _ := strconv.ParseInt(val, 0, 64)
-	if !getByKB && memKB > 999 {
+	if memKB > 999 {
 		memMB := memKB / 1000
 		if memMB > 999 {
 			memGB := memMB / 1000
 			if memGB > 999 {
 				memTB := memGB / 1000
 
-				return strconv.Itoa(int(memTB)) + "TB"
+				return strconv.Itoa(int(memTB)) + "TB", memKB
 			}
 
-			return strconv.Itoa(int(memGB)) + "GB"
+			return strconv.Itoa(int(memGB)) + "GB", memKB
 		}
 
-		return strconv.Itoa(int(memMB)) + "MB"
+		return strconv.Itoa(int(memMB)) + "MB", memKB
 	}
 
-	return strconv.Itoa(int(memKB)) + "KB"
+	return strconv.Itoa(int(memKB)) + "KB", memKB
 }
 
-func getTotalMemUsagePercent() string {
-	totalMemStr := getTotalMem(true)
-	totalMem, _ := strconv.ParseInt(totalMemStr[:len(totalMemStr)-2], 0, 64)
-
-	memUsageStr := getTotalMemUsage(true)
-	memUsage, _ := strconv.ParseInt(memUsageStr[:len(memUsageStr)-2], 0, 64)
-
-	calcUsage := float32(memUsage) / float32(totalMem) * 100
+func getTotalMemUsagePercent(totalMemUsage int64, memTotal int64) string {
+	calcUsage := float32(totalMemUsage) / float32(memTotal) * 100
 	value := fmt.Sprintf("%.2f", calcUsage)
 
 	return value + "%"
@@ -448,11 +462,13 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 			Children:   emptyTaskList,
 			Threads:    emptyTaskList,
 			CPUUsage:   getCPUUsage(processPID),
-			MemUsage:   getMemUsage(processPID, false),
+			MemUsage:   "0KB",
 			EPMType:    "NOT_SUPPORTED",
 			EPMSource:  0,
 			EPMTarget:  0,
 		}
+		task.MemUsage = getMemUsage(&task, false)
+
 		err := getStatFromProc(processPID, &task)
 		if err != nil {
 			fmt.Printf("getStatFromProc(): PID: %d, Error: %s\n", processPID, err.Error())
@@ -545,9 +561,11 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 
 	taskList.Tasks = pTasks
 	taskList.TotalTasks = int64(len(modelTaskList))
-	taskList.TotalMemUsage = getTotalMemUsage(false)
-	taskList.TotalMem = getTotalMem(false)
-	taskList.TotalMemUsagePercent = getTotalMemUsagePercent()
+	var totalMemUsageKB int64 = 0
+	taskList.TotalMemUsage, totalMemUsageKB = getTotalMemUsage()
+	var totalMemKB int64 = 0
+	taskList.TotalMem, totalMemKB = getTotalMem()
+	taskList.TotalMemUsagePercent = getTotalMemUsagePercent(totalMemUsageKB, totalMemKB)
 	taskList.TotalCPUUsage = getTotalCPUUsage(modelTaskList)
 
 	return &taskList, 0, ""
