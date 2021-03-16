@@ -521,6 +521,7 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 	}
 
 	var wait sync.WaitGroup
+	var modelTaskListAppendLock sync.Mutex
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
@@ -607,12 +608,18 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 				}
 			}
 
+			modelTaskListAppendLock.Lock()
 			*routineModelTaskList = append(*routineModelTaskList, task)
+			modelTaskListAppendLock.Unlock()
 		OUT:
 			wait.Done()
 		}(p, &modelTaskList)
 	}
 	wait.Wait()
+
+	var childrenAppendLock sync.Mutex
+	var threadAppendLock sync.Mutex
+	var pTaskAppendLock sync.Mutex
 
 	wait.Add(len(modelTaskList))
 	for i := range modelTaskList {
@@ -631,7 +638,9 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 				}
 
 				if parent.PID == routineModelTaskList[i].PPID {
+					childrenAppendLock.Lock()
 					parent.Children = append(parent.Children, routineModelTaskList[i])
+					childrenAppendLock.Unlock()
 				}
 			}
 
@@ -646,10 +655,14 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 					continue
 				}
 
+				threadAppendLock.Lock()
 				routineModelTaskList[routineI].Threads = append(routineModelTaskList[routineI].Threads, *thread)
+				threadAppendLock.Unlock()
 			}
 
+			pTaskAppendLock.Lock()
 			pTasks = append(pTasks, modelTaskToPbTask(&routineModelTaskList[routineI], false))
+			pTaskAppendLock.Unlock()
 		OUT:
 			wait.Done()
 		}(modelTaskList, i)
