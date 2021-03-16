@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"github.com/hcloud-classic/hcc_errors"
 	"github.com/hcloud-classic/pb"
-	"github.com/mitchellh/go-ps"
 	"hcc/tuba/lib/fileutil"
 	"hcc/tuba/lib/syscheck"
 	"hcc/tuba/model"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -17,6 +17,57 @@ import (
 	"sync"
 	"syscall"
 )
+
+func getPIDList() ([]int, error) {
+	var pidList []int
+
+	d, err := os.Open("/proc")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = d.Close()
+	}()
+
+	for {
+		names, err := d.Readdirnames(10)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		var wait sync.WaitGroup
+
+		wait.Add(len(names))
+		for _, name := range names {
+			go func(routineName string, routinePIDList *[]int) {
+				var pid int64
+				var err error
+
+				// We only care if the name starts with a numeric
+				if routineName[0] < '0' || routineName[0] > '9' {
+					goto OUT
+				}
+
+				// From this point forward, any errors we just ignore, because
+				// it might simply be that the process doesn't exist anymore.
+				pid, err = strconv.ParseInt(routineName, 10, 0)
+				if err != nil {
+					goto OUT
+				}
+
+				*routinePIDList = append(*routinePIDList, int(pid))
+			OUT:
+				wait.Done()
+			}(name, &pidList)
+		}
+		wait.Wait()
+	}
+
+	return pidList, nil
+}
 
 func modelTaskToPbTask(task *model.Task, skipRecursive bool) *pb.Task {
 	var pChildren []*pb.Task
@@ -464,39 +515,37 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 		}
 	}
 
-	pList, err := ps.Processes()
+	pidList, err := getPIDList()
 	if err != nil {
 		return nil, hcc_errors.HccErrorTestCode, err.Error()
 	}
 
 	var wait sync.WaitGroup
 
-	wait.Add(len(pList))
-	for _, process := range pList {
-		go func(routineProcess ps.Process, routineModelTaskList *[]model.Task) {
+	wait.Add(len(pidList))
+	for _, p := range pidList {
+		go func(routinePID int, routineModelTaskList *[]model.Task) {
 			var task model.Task
 			var err error
 
-			processPID := routineProcess.Pid()
-
-			if !isProcExist(processPID) {
+			if !isProcExist(routinePID) {
 				goto OUT
 			}
 
 			task = model.Task{
 				CMD:        "",
 				State:      "",
-				PID:        processPID,
+				PID:        routinePID,
 				PPID:       0,
 				PGID:       0,
 				SID:        0,
 				Priority:   0,
 				Nice:       0,
 				NumThreads: 0,
-				StartTime:  getStartTime(processPID),
+				StartTime:  getStartTime(routinePID),
 				Children:   emptyTaskList,
 				Threads:    emptyTaskList,
-				CPUUsage:   getCPUUsage(processPID),
+				CPUUsage:   getCPUUsage(routinePID),
 				MemUsage:   "0KB",
 				EPMType:    "NOT_SUPPORTED",
 				EPMSource:  0,
@@ -504,17 +553,17 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 			}
 			task.MemUsage = getMemUsage(&task, false)
 
-			err = getStatFromProc(processPID, &task)
+			err = getStatFromProc(routinePID, &task)
 			if err != nil {
-				fmt.Printf("getStatFromProc(): PID: %d, Error: %s\n", processPID, err.Error())
+				fmt.Printf("getStatFromProc(): PID: %d, Error: %s\n", routinePID, err.Error())
 				goto OUT
 			}
 
 			if syscheck.EPMProcSupported {
-				task.EPMType = getProcData(processPID, "epm_type")
-				src, _ := strconv.Atoi(getProcData(processPID, "epm_source"))
+				task.EPMType = getProcData(routinePID, "epm_type")
+				src, _ := strconv.Atoi(getProcData(routinePID, "epm_source"))
 				task.EPMSource = src
-				target, _ := strconv.Atoi(getProcData(processPID, "epm_target"))
+				target, _ := strconv.Atoi(getProcData(routinePID, "epm_target"))
 				task.EPMTarget = target
 			}
 
@@ -561,7 +610,7 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 			*routineModelTaskList = append(*routineModelTaskList, task)
 		OUT:
 			wait.Done()
-		}(process, &modelTaskList)
+		}(p, &modelTaskList)
 	}
 	wait.Wait()
 
