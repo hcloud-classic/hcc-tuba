@@ -452,7 +452,7 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 				CMD:        "",
 				State:      "",
 				PID:        processPID,
-				PPID:       routineProcess.PPid(),
+				PPID:       0,
 				PGID:       0,
 				SID:        0,
 				Priority:   0,
