@@ -449,7 +449,7 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 			}
 
 			task = model.Task{
-				CMD:        routineProcess.Executable(),
+				CMD:        "",
 				State:      "",
 				PID:        processPID,
 				PPID:       routineProcess.PPid(),
