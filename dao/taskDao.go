@@ -344,14 +344,49 @@ func getThreadsPIDs(pid int) ([]int, error) {
 	return threadsPIDs, nil
 }
 
-func findTaskByPID(tasks []model.Task, pid int) *model.Task {
-	for i := range tasks {
-		if tasks[i].PID == pid {
-			return &tasks[i]
-		}
+func getTaskByPID(pid int) *model.Task {
+	var emptyTaskList []model.Task
+
+	if !isProcExist(pid) {
+		return nil
 	}
 
-	return nil
+	task := model.Task{
+		CMD:        "",
+		State:      "",
+		PID:        pid,
+		PPID:       0,
+		PGID:       0,
+		SID:        0,
+		Priority:   0,
+		Nice:       0,
+		NumThreads: 0,
+		StartTime:  getStartTime(pid),
+		Children:   emptyTaskList,
+		Threads:    emptyTaskList,
+		CPUUsage:   getCPUUsage(pid),
+		MemUsage:   "0KB",
+		EPMType:    "NOT_SUPPORTED",
+		EPMSource:  0,
+		EPMTarget:  0,
+	}
+	task.MemUsage = getMemUsage(&task, false)
+
+	err := getStatFromProc(pid, &task)
+	if err != nil {
+		fmt.Printf("getStatFromProc(): PID: %d, Error: %s\n", pid, err.Error())
+		return nil
+	}
+
+	if syscheck.EPMProcSupported {
+		task.EPMType = getProcData(pid, "epm_type")
+		src, _ := strconv.Atoi(getProcData(pid, "epm_source"))
+		task.EPMSource = src
+		target, _ := strconv.Atoi(getProcData(pid, "epm_target"))
+		task.EPMTarget = target
+	}
+
+	return &task
 }
 
 func findTaskByPPID(tasks []model.Task, ppid int) *model.Task {
@@ -557,7 +592,7 @@ func ReadTaskList(in *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 			}
 
 			for _, threadPID := range threadsPIDs {
-				thread := findTaskByPID(routineModelTaskList, threadPID)
+				thread := getTaskByPID(threadPID)
 				if thread == nil {
 					continue
 				}
