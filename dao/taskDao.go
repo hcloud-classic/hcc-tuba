@@ -44,7 +44,7 @@ func getPIDList() ([]int, error) {
 
 		wait.Add(len(names))
 		for _, name := range names {
-			go func(routineName string, routinePIDList *[]int) {
+			go func(routineName string) {
 				var pid int64
 				var err error
 
@@ -61,11 +61,11 @@ func getPIDList() ([]int, error) {
 				}
 
 				pidListAppendLock.Lock()
-				*routinePIDList = append(*routinePIDList, int(pid))
+				pidList = append(pidList, int(pid))
 				pidListAppendLock.Unlock()
 			OUT:
 				wait.Done()
-			}(name, &pidList)
+			}(name)
 		}
 		wait.Wait()
 	}
@@ -487,51 +487,59 @@ func getThread(pid int, spid int) *model.Task {
 	return &task
 }
 
-func findTaskByPPID(tasks *[]model.Task, ppid int) *model.Task {
-	for i := range *tasks {
-		if (*tasks)[i].PID == ppid {
-			return &(*tasks)[i]
-		}
-
-		children := &(*tasks)[i].Children
-		task := findTaskByPPID(children, ppid)
-		if task != nil {
-			return task
-		}
-	}
-
-	return nil
-}
-
-func makeTaskTree(tasks *[]model.Task) {
+func deleteTaskFromTaskList(tasks *[]model.Task, pid int) {
 	var newTaskList []model.Task
-	var parentIsExist []bool
 
 	for i := range *tasks {
-		if (*tasks)[i].PID == 1 {
-			parentIsExist = append(parentIsExist, false)
+		if (*tasks)[i].PID == pid {
 			continue
 		}
 
-		fmt.Println("\n")
-		fmt.Println("(*tasks)[i].CMD", (*tasks)[i].CMD)
-		parent := findTaskByPPID(tasks, (*tasks)[i].PPID)
-		if parent != nil {
-			fmt.Println("parent.CMD", parent.CMD)
-			parent.Children = append(parent.Children, (*tasks)[i])
-			parentIsExist = append(parentIsExist, true)
-		} else {
-			parentIsExist = append(parentIsExist, false)
-		}
-	}
-
-	for i := range parentIsExist {
-		if !parentIsExist[i] {
-			newTaskList = append(newTaskList, (*tasks)[i])
-		}
+		newTaskList = append(newTaskList, (*tasks)[i])
 	}
 
 	*tasks = newTaskList
+}
+
+func attachChildToParent(tasks *[]model.Task, child *model.Task, ppid int) (attached bool) {
+	for i := range *tasks {
+		children := &(*tasks)[i].Children
+
+		if (*tasks)[i].PID == ppid {
+			*children = append(*children, *child)
+
+			return true
+		}
+
+		if attachChildToParent(children, child, ppid) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func makeTaskTree(tasks *[]model.Task) {
+	for {
+		var listChanged = false
+
+		for i := range *tasks {
+			if (*tasks)[i].PID == 1 {
+				continue
+			}
+
+			attached := attachChildToParent(tasks, &(*tasks)[i], (*tasks)[i].PPID)
+			if attached {
+				deleteTaskFromTaskList(tasks, (*tasks)[i].PID)
+				listChanged = true
+				break
+			}
+		}
+
+		if !listChanged {
+			break
+		}
+	}
 }
 
 // ReadTaskList : Get list of task with selected infos
@@ -551,7 +559,7 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
-		go func(routinePID int, routineModelTaskList *[]model.Task) {
+		go func(routinePID int) {
 			var task *model.Task
 			var pid int
 			var threadsPIDs []int
@@ -581,11 +589,11 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 			}
 
 			taskListAppendLock.Lock()
-			*routineModelTaskList = append(*routineModelTaskList, *task)
+			modelTaskList= append(modelTaskList, *task)
 			taskListAppendLock.Unlock()
 		OUT:
 			wait.Done()
-		}(p, &modelTaskList)
+		}(p)
 	}
 	wait.Wait()
 
@@ -600,10 +608,8 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 	makeTaskTree(&modelTaskList)
 	taskList.Tasks = modelTaskList
 
-	result, err := json.MarshalIndent(taskList, "", "    ")
+	result, err := json.Marshal(taskList)
 	resGetTaskList.Result = string(result)
-	//fmt.Println(resGetTaskList.Result)
-	fmt.Println("\n\n\n")
 
 	return &resGetTaskList, 0, ""
 }
