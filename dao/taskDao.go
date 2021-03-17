@@ -40,6 +40,7 @@ func getPIDList() ([]int, error) {
 		}
 
 		var wait sync.WaitGroup
+		var pidListAppendLock sync.Mutex
 
 		wait.Add(len(names))
 		for _, name := range names {
@@ -59,7 +60,9 @@ func getPIDList() ([]int, error) {
 					goto OUT
 				}
 
+				pidListAppendLock.Lock()
 				*routinePIDList = append(*routinePIDList, int(pid))
+				pidListAppendLock.Unlock()
 			OUT:
 				wait.Done()
 			}(name, &pidList)
