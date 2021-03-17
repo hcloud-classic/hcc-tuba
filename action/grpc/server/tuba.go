@@ -12,19 +12,15 @@ type tubaServer struct {
 	pb.UnimplementedTubaServer
 }
 
-func (s *tubaServer) GetTaskList(_ context.Context, in *pb.ReqGetTaskList) (*pb.ResGetTaskList, error) {
-	resGetTaskList, errCode, errStr := dao.ReadTaskList(in)
+func (s *tubaServer) GetTaskList(_ context.Context, _ *pb.Empty) (*pb.ResGetTaskList, error) {
+	resGetTaskList, errCode, errStr := dao.ReadTaskList()
 	if errCode != 0 {
 		errStack := hcc_errors.NewHccErrorStack(hcc_errors.NewHccError(errCode, errStr))
-		return &pb.ResGetTaskList{Tasks: []*pb.Task{}, HccErrorStack: errconv.HccStackToGrpc(errStack)}, nil
+		return &pb.ResGetTaskList{
+			Result:        "",
+			HccErrorStack: errconv.HccStackToGrpc(errStack),
+		}, nil
 	}
 
-	return &pb.ResGetTaskList{
-		Tasks:                resGetTaskList.Tasks,
-		TotalTasks:           resGetTaskList.TotalTasks,
-		TotalMemUsage:        resGetTaskList.TotalMemUsage,
-		TotalMem:             resGetTaskList.TotalMem,
-		TotalMemUsagePercent: resGetTaskList.TotalMemUsagePercent,
-		TotalCPUUsage:        resGetTaskList.TotalCPUUsage,
-	}, nil
+	return resGetTaskList, nil
 }
