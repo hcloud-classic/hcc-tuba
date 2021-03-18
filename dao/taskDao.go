@@ -3,8 +3,8 @@ package dao
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/hcloud-classic/hcc_errors"
-	"github.com/hcloud-classic/pb"
+	"innogrid.com/hcloud-classic/hcc_errors"
+	"innogrid.com/hcloud-classic/pb"
 	"hcc/tuba/lib/fileutil"
 	"hcc/tuba/lib/syscheck"
 	"hcc/tuba/model"

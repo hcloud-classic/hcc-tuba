@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/hcloud-classic/hcc_errors"
+	"innogrid.com/hcloud-classic/hcc_errors"
 	"hcc/tuba/action/grpc/server"
 	"hcc/tuba/lib/config"
 	"hcc/tuba/lib/logger"
