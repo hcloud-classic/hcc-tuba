@@ -17,7 +17,7 @@ func (s *tubaServer) GetTaskList(_ context.Context, _ *pb.Empty) (*pb.ResGetTask
 	if errCode != 0 {
 		errStack := hcc_errors.NewHccErrorStack(hcc_errors.NewHccError(errCode, errStr))
 		return &pb.ResGetTaskList{
-			Result:        "",
+			Result:        []byte{},
 			HccErrorStack: errconv.HccStackToGrpc(errStack),
 		}, nil
 	}
