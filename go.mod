@@ -4,9 +4,12 @@ go 1.16
 
 require (
 	github.com/Terry-Mao/goconf v0.0.0-20161115082538-13cb73d70c44
-	github.com/hcloud-classic/hcc_errors v1.1.2
-	github.com/hcloud-classic/pb v0.0.0
 	google.golang.org/grpc v1.34.1
+	innogrid.com/hcloud-classic/hcc_errors v0.0.0
+	innogrid.com/hcloud-classic/pb v0.0.0
 )
 
-replace github.com/hcloud-classic/pb => ../pb
+replace (
+	innogrid.com/hcloud-classic/hcc_errors => ../hcc_errors
+	innogrid.com/hcloud-classic/pb => ../pb
+)

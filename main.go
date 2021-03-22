@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/hcloud-classic/hcc_errors"
 	"hcc/tuba/action/grpc/server"
 	"hcc/tuba/lib/config"
 	"hcc/tuba/lib/logger"
 	"hcc/tuba/lib/pid"
 	"hcc/tuba/lib/syscheck"
+	"innogrid.com/hcloud-classic/hcc_errors"
 	"os"
 	"os/signal"
 	"strconv"

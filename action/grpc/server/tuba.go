@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
-	"github.com/hcloud-classic/hcc_errors"
-	"github.com/hcloud-classic/pb"
 	"hcc/tuba/action/grpc/errconv"
 	"hcc/tuba/dao"
+	"innogrid.com/hcloud-classic/hcc_errors"
+	"innogrid.com/hcloud-classic/pb"
 )
 
 type tubaServer struct {
@@ -17,7 +17,7 @@ func (s *tubaServer) GetTaskList(_ context.Context, _ *pb.Empty) (*pb.ResGetTask
 	if errCode != 0 {
 		errStack := hcc_errors.NewHccErrorStack(hcc_errors.NewHccError(errCode, errStr))
 		return &pb.ResGetTaskList{
-			Result:        "",
+			Result:        []byte{},
 			HccErrorStack: errconv.HccStackToGrpc(errStack),
 		}, nil
 	}
