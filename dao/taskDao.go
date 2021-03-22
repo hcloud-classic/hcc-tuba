@@ -609,7 +609,7 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 	taskList.Tasks = modelTaskList
 
 	result, err := json.Marshal(taskList)
-	resGetTaskList.Result = string(result)
+	resGetTaskList.Result = result
 
 	return &resGetTaskList, 0, ""
 }
