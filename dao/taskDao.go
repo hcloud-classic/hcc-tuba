@@ -3,11 +3,11 @@ package dao
 import (
 	"encoding/json"
 	"fmt"
-	"innogrid.com/hcloud-classic/hcc_errors"
-	"innogrid.com/hcloud-classic/pb"
 	"hcc/tuba/lib/fileutil"
 	"hcc/tuba/lib/syscheck"
 	"hcc/tuba/model"
+	"innogrid.com/hcloud-classic/hcc_errors"
+	"innogrid.com/hcloud-classic/pb"
 	"io"
 	"io/ioutil"
 	"os"
@@ -19,8 +19,37 @@ import (
 	"syscall"
 )
 
-func getPIDList() ([]int, error) {
+var modelTaskList []model.Task
+
+type pid struct {
+	pid   int
+	isNew bool
+}
+
+func getOldPIDList(taskList *[]model.Task) []int {
 	var pidList []int
+
+	for i := range *taskList {
+		pidList = append(pidList, (*taskList)[i].PID)
+		pidList = append(pidList, getOldPIDList(&(*taskList)[i].Children)...)
+	}
+
+	return pidList
+}
+
+func isPIDExist(oldPIDList *[]int, pid int) bool {
+	for _, _pid := range *oldPIDList {
+		if _pid == pid {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getPIDList() ([]pid, error) {
+	var pidList []pid
+	var oldPIDList = getOldPIDList(&modelTaskList)
 
 	d, err := os.Open("/proc")
 	if err != nil {
@@ -45,7 +74,8 @@ func getPIDList() ([]int, error) {
 		wait.Add(len(names))
 		for _, name := range names {
 			go func(routineName string) {
-				var pid int64
+				var _pid int64
+				var pidExist bool
 				var err error
 
 				// We only care if the name starts with a numeric
@@ -55,13 +85,17 @@ func getPIDList() ([]int, error) {
 
 				// From this point forward, any errors we just ignore, because
 				// it might simply be that the process doesn't exist anymore.
-				pid, err = strconv.ParseInt(routineName, 10, 0)
+				_pid, err = strconv.ParseInt(routineName, 10, 0)
 				if err != nil {
 					goto OUT
 				}
 
 				pidListAppendLock.Lock()
-				pidList = append(pidList, int(pid))
+				pidExist = isPIDExist(&oldPIDList, int(_pid))
+				pidList = append(pidList, pid{
+					pid:   int(_pid),
+					isNew: pidExist,
+				})
 				pidListAppendLock.Unlock()
 			OUT:
 				wait.Done()
@@ -71,6 +105,28 @@ func getPIDList() ([]int, error) {
 	}
 
 	return pidList, nil
+}
+
+func findTaskFromModelTaskList(pid int) *model.Task {
+	for _, modelTask := range modelTaskList {
+		if modelTask.PID == pid {
+			return &modelTask
+		}
+	}
+
+	return nil
+}
+
+func findThreadFromModelTaskList(pid int) *model.Task {
+	for _, modelTask := range modelTaskList {
+		for _, thread := range modelTask.Threads {
+			if thread.PID == pid {
+				return &thread
+			}
+		}
+	}
+
+	return nil
 }
 
 func getProcessStartTime(pid int) string {
@@ -393,54 +449,73 @@ func getThreadsPIDs(pid int) ([]int, error) {
 	return threadsPIDs, nil
 }
 
-func getTask(pid int) *model.Task {
+func getTask(pid pid) *model.Task {
 	var emptyTaskList []model.Task
 
-	if !isProcExist(pid) {
-		fmt.Println("no pid", pid)
+	_pid := pid.pid
+
+	if !isProcExist(_pid) {
+		fmt.Println("no pid", _pid)
 		return nil
 	}
 
 	task := model.Task{
 		CMD:        "",
 		State:      "",
-		PID:        pid,
+		PID:        _pid,
 		PPID:       0,
 		PGID:       0,
 		SID:        0,
 		Priority:   0,
 		Nice:       0,
 		NumThreads: 0,
-		StartTime:  getProcessStartTime(pid),
 		Children:   emptyTaskList,
 		Threads:    emptyTaskList,
-		CPUUsage:   getCPUUsage(pid),
+		CPUUsage:   getCPUUsage(_pid),
 		MemUsage:   "0KB",
 		EPMType:    "NOT_SUPPORTED",
 		EPMSource:  0,
 		EPMTarget:  0,
-		CMDLine:    getCmdline(pid),
 	}
+
+	if pid.isNew {
+		task.StartTime = getProcessStartTime(_pid)
+		task.CMDLine = getCmdline(_pid)
+	} else {
+		tsk := findTaskFromModelTaskList(_pid)
+		if tsk != nil {
+			task.StartTime = tsk.StartTime
+			task.CMDLine = tsk.CMDLine
+		} else {
+			task.StartTime = getProcessStartTime(_pid)
+			task.CMDLine = getCmdline(_pid)
+		}
+	}
+
 	task.MemUsage = getMemUsage(&task, false)
 
-	err := getStatFromProc(pid, &task)
+	err := getStatFromProc(_pid, &task)
 	if err != nil {
 		fmt.Printf("getThread(): getStatFromProc(): PID: %d, Error: %s\n", pid, err.Error())
 		return nil
 	}
 
 	if syscheck.EPMProcSupported {
-		task.EPMType = getProcData(pid, "epm_type")
-		src, _ := strconv.Atoi(getProcData(pid, "epm_source"))
+		task.EPMType = getProcData(_pid, "epm_type")
+		src, _ := strconv.Atoi(getProcData(_pid, "epm_source"))
 		task.EPMSource = src
-		target, _ := strconv.Atoi(getProcData(pid, "epm_target"))
-		task.EPMTarget = target
+		if task.EPMType == "EPM_NO_ACTION" {
+			task.EPMTarget = src
+		} else {
+			target, _ := strconv.Atoi(getProcData(_pid, "epm_target"))
+			task.EPMTarget = target
+		}
 	}
 
 	return &task
 }
 
-func getThread(pid int, spid int) *model.Task {
+func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 	var emptyTaskList []model.Task
 
 	if !isProcExist(spid) {
@@ -458,17 +533,28 @@ func getThread(pid int, spid int) *model.Task {
 		Priority:   0,
 		Nice:       0,
 		NumThreads: 0,
-		StartTime:  getThreadStartTime(pid, spid),
 		Children:   emptyTaskList,
 		Threads:    emptyTaskList,
 		CPUUsage:   getCPUUsage(spid),
-		MemUsage:   "0KB",
+		MemUsage:   parent.MemUsage,
 		EPMType:    "NOT_SUPPORTED",
 		EPMSource:  0,
 		EPMTarget:  0,
-		CMDLine:    getCmdline(spid),
 	}
-	task.MemUsage = getMemUsage(&task, false)
+
+	if isNew {
+		task.StartTime = getThreadStartTime(parent.PID, spid)
+		task.CMDLine = getCmdline(spid)
+	} else {
+		tsk := findThreadFromModelTaskList(spid)
+		if tsk != nil {
+			task.StartTime = tsk.StartTime
+			task.CMDLine = tsk.CMDLine
+		} else {
+			task.StartTime = getThreadStartTime(parent.PID, spid)
+			task.CMDLine = getCmdline(spid)
+		}
+	}
 
 	err := getStatFromProc(spid, &task)
 	if err != nil {
@@ -519,18 +605,20 @@ func attachChildToParent(tasks *[]model.Task, child *model.Task, ppid int) (atta
 	return false
 }
 
-func makeTaskTree(tasks *[]model.Task) {
+func makeTaskTree(tasks *[]model.Task) []model.Task {
+	var newTasks = *tasks
+
 	for {
 		var listChanged = false
 
-		for i := range *tasks {
-			if (*tasks)[i].PID == 1 {
+		for i := range newTasks {
+			if newTasks[i].PID == 1 {
 				continue
 			}
 
-			attached := attachChildToParent(tasks, &(*tasks)[i], (*tasks)[i].PPID)
+			attached := attachChildToParent(&newTasks, &newTasks[i], newTasks[i].PPID)
 			if attached {
-				deleteTaskFromTaskList(tasks, (*tasks)[i].PID)
+				deleteTaskFromTaskList(&newTasks, newTasks[i].PID)
 				listChanged = true
 				break
 			}
@@ -540,14 +628,25 @@ func makeTaskTree(tasks *[]model.Task) {
 			break
 		}
 	}
+
+	return newTasks
+}
+
+func isThreadExist(oldThreadPIDs *[]int, threadPID int) bool {
+	for _, pid := range *oldThreadPIDs {
+		if pid == threadPID {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ReadTaskList : Get list of task with selected infos
 func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
+	var newModelTaskList []model.Task
 	var resGetTaskList pb.ResGetTaskList
 	var taskList model.TaskList
-
-	var modelTaskList []model.Task
 
 	pidList, err := getPIDList()
 	if err != nil {
@@ -559,14 +658,24 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
-		go func(routinePID int) {
+		go func(routinePID pid) {
 			var task *model.Task
 			var pid int
 			var threadsPIDs []int
+			var oldThreadsPIDs []int
 
 			task = getTask(routinePID)
 			if task == nil {
 				goto OUT
+			}
+
+			if !routinePID.isNew {
+				oldTask := findTaskFromModelTaskList(task.PID)
+				if oldTask != nil {
+					for _, thread := range oldTask.Threads {
+						oldThreadsPIDs = append(oldThreadsPIDs, thread.PID)
+					}
+				}
 			}
 
 			pid = task.PID
@@ -580,7 +689,8 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 					continue
 				}
 
-				thread := getThread(pid, threadPID)
+				isNew := isThreadExist(&oldThreadsPIDs, threadPID)
+				thread := getThread(task, threadPID, isNew)
 				if thread == nil {
 					continue
 				}
@@ -589,13 +699,15 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 			}
 
 			taskListAppendLock.Lock()
-			modelTaskList= append(modelTaskList, *task)
+			newModelTaskList = append(newModelTaskList, *task)
 			taskListAppendLock.Unlock()
 		OUT:
 			wait.Done()
 		}(p)
 	}
 	wait.Wait()
+
+	modelTaskList = newModelTaskList
 
 	taskList.TotalTasks = len(modelTaskList)
 	var totalMemUsageKB int64 = 0
@@ -605,8 +717,7 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 	taskList.TotalMemUsagePercent = getTotalMemUsagePercent(totalMemUsageKB, totalMemKB)
 	taskList.TotalCPUUsage = getTotalCPUUsage(modelTaskList)
 
-	makeTaskTree(&modelTaskList)
-	taskList.Tasks = modelTaskList
+	taskList.Tasks = makeTaskTree(&modelTaskList)
 
 	result, err := json.Marshal(taskList)
 	resGetTaskList.Result = result
