@@ -828,6 +828,7 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 
 	var wait sync.WaitGroup
 	var taskListAppendLock sync.Mutex
+	var totalThreadsLock sync.Mutex
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
@@ -869,10 +870,13 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 						continue
 					}
 
+					totalThreadsLock.Lock()
+					threads++
+					totalThreadsLock.Unlock()
+
 					if needSorting {
 						taskListAppendLock.Lock()
 						newModelTaskList = append(newModelTaskList, *thread)
-						threads++
 						taskListAppendLock.Unlock()
 					} else {
 						task.Threads = append(task.Threads, *thread)
@@ -893,9 +897,10 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 
 	if needSorting {
 		taskList.TotalTasks = len(modelTaskList) - threads
-	} else  {
+	} else {
 		taskList.TotalTasks = len(modelTaskList)
 	}
+	taskList.TotalThreads = threads
 	var totalMemUsageKB int64 = 0
 	taskList.TotalMemUsage, totalMemUsageKB = getTotalMemUsage()
 	var totalMemKB int64 = 0

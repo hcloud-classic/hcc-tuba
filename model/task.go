@@ -32,6 +32,7 @@ type Task struct {
 type TaskList struct {
 	Tasks                []Task `json:"task_list"`
 	TotalTasks           int    `json:"total_tasks"`
+	TotalThreads         int    `json:"total_threads"`
 	TotalMemUsage        string `json:"total_mem_usage"`
 	TotalMem             string `json:"total_mem"`
 	TotalMemUsagePercent string `json:"total_mem_usage_percent"`
