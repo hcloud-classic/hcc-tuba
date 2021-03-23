@@ -408,23 +408,11 @@ func getProcData(pid int, procData string) string {
 		return "error"
 	}
 
-	value := strings.TrimSpace(string(data))
-
-	return value
-}
-
-func getCmdline(pid int) string {
-	data, err := readProcFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
-	if err != nil {
-		return "error"
-	}
-	if data == nil {
-		return "error"
-	}
-
-	for i := range data {
-		if data[i] == '\u0000' {
-			data[i] = '\u0020'
+	if procData == "cmdline" {
+		for i := range data {
+			if data[i] == '\u0000' {
+				data[i] = '\u0020'
+			}
 		}
 	}
 
@@ -480,7 +468,7 @@ func getTask(pid pid) *model.Task {
 
 	if pid.isNew {
 		task.StartTime = getProcessStartTime(_pid)
-		task.CMDLine = getCmdline(_pid)
+		task.CMDLine = getProcData(_pid, "cmdline")
 	} else {
 		tsk := findTaskFromModelTaskList(_pid)
 		if tsk != nil {
@@ -488,7 +476,7 @@ func getTask(pid pid) *model.Task {
 			task.CMDLine = tsk.CMDLine
 		} else {
 			task.StartTime = getProcessStartTime(_pid)
-			task.CMDLine = getCmdline(_pid)
+			task.CMDLine = getProcData(_pid, "cmdline")
 		}
 	}
 
@@ -544,7 +532,7 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 
 	if isNew {
 		task.StartTime = getThreadStartTime(parent.PID, spid)
-		task.CMDLine = getCmdline(spid)
+		task.CMDLine = getProcData(spid, "cmdline")
 	} else {
 		tsk := findThreadFromModelTaskList(spid)
 		if tsk != nil {
@@ -552,7 +540,7 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 			task.CMDLine = tsk.CMDLine
 		} else {
 			task.StartTime = getThreadStartTime(parent.PID, spid)
-			task.CMDLine = getCmdline(spid)
+			task.CMDLine = getProcData(spid, "cmdline")
 		}
 	}
 
