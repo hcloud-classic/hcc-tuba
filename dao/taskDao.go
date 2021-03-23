@@ -807,6 +807,7 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 	var taskList model.TaskList
 	var sortingMethod = reqGetTaskList.GetSortBy()
 	var needSorting = false
+	var hideThreads = reqGetTaskList.GetHideThreads()
 
 	if sortingMethod != "" {
 		err := checkSortingMethod(sortingMethod)
@@ -846,29 +847,31 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 				}
 			}
 
-			pid = task.PID
-			threadsPIDs, err = getThreadsPIDs(pid)
-			if err != nil {
-				fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
-			}
-
-			for _, threadPID := range threadsPIDs {
-				if pid == threadPID {
-					continue
+			if !hideThreads {
+				pid = task.PID
+				threadsPIDs, err = getThreadsPIDs(pid)
+				if err != nil {
+					fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
 				}
 
-				isNew := isThreadExist(&oldThreadsPIDs, threadPID)
-				thread := getThread(task, threadPID, isNew)
-				if thread == nil {
-					continue
-				}
+				for _, threadPID := range threadsPIDs {
+					if pid == threadPID {
+						continue
+					}
 
-				if needSorting {
-					taskListAppendLock.Lock()
-					newModelTaskList = append(newModelTaskList, *thread)
-					taskListAppendLock.Unlock()
-				} else {
-					task.Threads = append(task.Threads, *thread)
+					isNew := isThreadExist(&oldThreadsPIDs, threadPID)
+					thread := getThread(task, threadPID, isNew)
+					if thread == nil {
+						continue
+					}
+
+					if needSorting {
+						taskListAppendLock.Lock()
+						newModelTaskList = append(newModelTaskList, *thread)
+						taskListAppendLock.Unlock()
+					} else {
+						task.Threads = append(task.Threads, *thread)
+					}
 				}
 			}
 
