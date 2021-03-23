@@ -131,6 +131,33 @@ func findThreadFromModelTaskList(pid int) *model.Task {
 	return nil
 }
 
+func getUserID(pid int) string {
+	cmd := exec.Command("sh", "-c", "stat -c %u /proc/"+strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return "error"
+	}
+
+	value := strings.TrimSpace(string(out))
+
+	return value
+}
+
+func getUserName(pid int) string {
+	cmd := exec.Command("sh", "-c", "stat -c %U /proc/"+strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return "error"
+	}
+
+	value := strings.TrimSpace(string(out))
+	if value == "UNKNOWN" {
+		return getUserID(pid)
+	}
+
+	return value
+}
+
 func getProcessTime(pid int) string {
 	cmd := exec.Command("sh", "-c", "ps -o time= -p "+strconv.Itoa(pid))
 	out, err := cmd.Output()
@@ -453,6 +480,7 @@ func getTask(pid pid) *model.Task {
 		CMD:        "",
 		State:      "",
 		PID:        _pid,
+		User:       getUserName(_pid),
 		PPID:       0,
 		PGID:       0,
 		SID:        0,
@@ -518,6 +546,7 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 		CMD:        "",
 		State:      "",
 		PID:        spid,
+		User:       parent.User,
 		PPID:       0,
 		PGID:       0,
 		SID:        0,
@@ -611,7 +640,7 @@ func checkSortingMethod(sortBy string) error {
 	sortBy = strings.ToLower(sortBy)
 
 	switch sortBy {
-	case "cmd", "state", "pid", "ppid", "pgid", "sid", "priority", "nice", "time", "cpu_usage", "mem_usage", "emp_type", "epm_target", "epm_source", "cmdline":
+	case "cmd", "state", "pid", "user", "ppid", "pgid", "sid", "priority", "nice", "time", "cpu_usage", "mem_usage", "emp_type", "epm_target", "epm_source", "cmdline":
 		goto OUT
 	default:
 		return errors.New("unknown sorting method")
@@ -645,6 +674,13 @@ func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
 				return (*taskList)[i].PID > (*taskList)[j].PID
 			}
 			return (*taskList)[i].PID < (*taskList)[j].PID
+		})
+	case "user":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].User > (*taskList)[j].User
+			}
+			return (*taskList)[i].User < (*taskList)[j].User
 		})
 	case "ppid":
 		sort.Slice(*taskList, func(i, j int) bool {

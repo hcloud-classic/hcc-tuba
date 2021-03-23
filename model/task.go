@@ -9,6 +9,7 @@ type Task struct {
 	CMD        string `json:"cmd"`
 	State      string `json:"state"`
 	PID        int    `json:"pid"`
+	User       string `json:"user"`
 	PPID       int    `json:"ppid"`
 	PGID       int    `json:"pgid"`
 	SID        int    `json:"sid"`
