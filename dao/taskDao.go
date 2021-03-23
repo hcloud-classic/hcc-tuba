@@ -424,6 +424,8 @@ func getStatFromProc(pid int, task *model.Task) error {
 		&task.Nice,
 		&task.NumThreads)
 
+	(*task).NumThreads--
+
 	return nil
 }
 
