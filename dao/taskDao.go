@@ -199,10 +199,13 @@ func getCPUUsage(pid int) string {
 	return value + "%"
 }
 
-func getTotalCPUUsage(tasks []model.Task) string {
+func getTotalCPUUsage(tasks *[]model.Task) string {
 	var usage float64 = 0
 
-	for _, task := range tasks {
+	for _, task := range *tasks {
+		if task.IsThread {
+			continue
+		}
 		taskCPUUsage := task.CPUUsage[:len(task.CPUUsage)-1]
 		usageFloat, _ := strconv.ParseFloat(taskCPUUsage, 2)
 
@@ -803,6 +806,7 @@ func makeTaskTree(tasks *[]model.Task) []model.Task {
 // ReadTaskList : Get list of task with selected infos
 func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 	var newModelTaskList []model.Task
+	var threads = 0
 	var resGetTaskList pb.ResGetTaskList
 	var taskList model.TaskList
 	var sortingMethod = reqGetTaskList.GetSortBy()
@@ -868,6 +872,7 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 					if needSorting {
 						taskListAppendLock.Lock()
 						newModelTaskList = append(newModelTaskList, *thread)
+						threads++
 						taskListAppendLock.Unlock()
 					} else {
 						task.Threads = append(task.Threads, *thread)
@@ -886,13 +891,17 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 
 	modelTaskList = newModelTaskList
 
-	taskList.TotalTasks = len(modelTaskList)
+	if needSorting {
+		taskList.TotalTasks = len(modelTaskList) - threads
+	} else  {
+		taskList.TotalTasks = len(modelTaskList)
+	}
 	var totalMemUsageKB int64 = 0
 	taskList.TotalMemUsage, totalMemUsageKB = getTotalMemUsage()
 	var totalMemKB int64 = 0
 	taskList.TotalMem, totalMemKB = getTotalMem()
 	taskList.TotalMemUsagePercent = getTotalMemUsagePercent(totalMemUsageKB, totalMemKB)
-	taskList.TotalCPUUsage = getTotalCPUUsage(modelTaskList)
+	taskList.TotalCPUUsage = getTotalCPUUsage(&modelTaskList)
 
 	if needSorting {
 		err := sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
