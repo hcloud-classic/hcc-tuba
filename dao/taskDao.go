@@ -515,7 +515,7 @@ func getTask(pid pid) *model.Task {
 
 	err := getStatFromProc(_pid, &task)
 	if err != nil {
-		fmt.Printf("getThread(): getStatFromProc(): PID: %d, Error: %s\n", pid, err.Error())
+		fmt.Printf("getTask(): getStatFromProc(): PID: %d, Error: %s\n", _pid, err.Error())
 		return nil
 	}
 
