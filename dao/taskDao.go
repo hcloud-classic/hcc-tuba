@@ -205,7 +205,7 @@ func getThreadTime(pid int, spid int) string {
 
 func getCPUUsage(pid int) string {
 	cmd := exec.Command("sh", "-c",
-		"ps up "+strconv.Itoa(pid)+" | tail -n1 | grep -iv \"%CPU\" | tr -s ' ' | cut -f3 -d' '")
+		"ps up "+strconv.Itoa(pid)+" | tail -n1 | tr -s ' ' | cut -f3 -d' '")
 	out, err := cmd.Output()
 	if err != nil {
 		return "error"
