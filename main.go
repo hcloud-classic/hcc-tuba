@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	err, tubaRunning, tubaPID := pid.IsTubaRunning()
+	tubaRunning, tubaPID, err := pid.IsTubaRunning()
 	if err != nil {
 		fmt.Println(err)
 		panic(err)

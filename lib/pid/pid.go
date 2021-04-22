@@ -12,28 +12,28 @@ var tubaPIDFileLocation = "/var/run"
 var tubaPIDFile = "/var/run/tuba.pid"
 
 // IsTubaRunning : Check if tuba is running
-func IsTubaRunning() (err error, running bool, pid int) {
+func IsTubaRunning() (running bool, pid int, err error) {
 	if _, err := os.Stat(tubaPIDFile); os.IsNotExist(err) {
-		return nil, false, 0
+		return false, 0, nil
 	}
 
 	pidStr, err := ioutil.ReadFile(tubaPIDFile)
 	if err != nil {
-		return err, false, 0
+		return false, 0, err
 	}
 
 	tubaPID, _ := strconv.Atoi(string(pidStr))
 
 	proc, err := os.FindProcess(tubaPID)
 	if err != nil {
-		return err, false, 0
+		return false, 0, err
 	}
 	err = proc.Signal(syscall.Signal(0))
 	if err == nil {
-		return nil, true, tubaPID
+		return true, tubaPID, nil
 	}
 
-	return nil, false, 0
+	return false, 0, nil
 }
 
 // WriteTubaPID : Write tuba PID to "/var/run/tuba.pid"
