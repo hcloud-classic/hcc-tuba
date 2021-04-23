@@ -46,6 +46,13 @@ func init() {
 		panic(err)
 	}
 
+	err = syscheck.IncreaseRLimitToMax()
+	if err != nil {
+		fmt.Println(err.Error())
+		_ = pid.DeleteTubaPID()
+		panic(err)
+	}
+
 	syscheck.CheckEPMProc()
 	if syscheck.EPMProcSupported {
 		fmt.Println("EPMProc is supported by the kernel")
