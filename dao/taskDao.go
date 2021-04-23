@@ -701,6 +701,8 @@ func makeTaskTree(tasks *[]model.Task) []model.Task {
 	return newTasks
 }
 
+var readTaskListLock sync.Mutex
+
 // ReadTaskList : Get list of task with selected infos
 func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 	var newModelTaskList []model.Task
@@ -711,22 +713,28 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 	var needSorting = false
 	var hideThreads = reqGetTaskList.GetHideThreads()
 
-	if sortingMethod != "" {
-		err := checkSortingMethod(sortingMethod)
-		if err != nil {
-			return nil, hcc_errors.HccErrorTestCode, err.Error()
-		}
-		needSorting = true
-	}
-
-	pidList, err := getPIDList()
-	if err != nil {
-		return nil, hcc_errors.HccErrorTestCode, err.Error()
-	}
+	var pidList []pid
+	var result []byte
+	var err error
 
 	var wait sync.WaitGroup
 	var taskListAppendLock sync.Mutex
 	var totalThreadsLock sync.Mutex
+
+	readTaskListLock.Lock()
+
+	if sortingMethod != "" {
+		err = checkSortingMethod(sortingMethod)
+		if err != nil {
+			goto ERROR
+		}
+		needSorting = true
+	}
+
+	pidList, err = getPIDList()
+	if err != nil {
+		goto ERROR
+	}
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
@@ -801,17 +809,21 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 	taskList.TotalThreads = threads
 
 	if needSorting {
-		err := sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
+		err = sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
 		if err != nil {
-			return nil, hcc_errors.HccErrorTestCode, err.Error()
+			goto ERROR
 		}
 		taskList.Tasks = modelTaskList
 	} else {
 		taskList.Tasks = makeTaskTree(&modelTaskList)
 	}
 
-	result, err := json.Marshal(taskList)
+	result, err = json.Marshal(taskList)
 	resGetTaskList.Result = result
 
+	readTaskListLock.Unlock()
 	return &resGetTaskList, 0, ""
+ERROR:
+	readTaskListLock.Unlock()
+	return nil, hcc_errors.HccErrorTestCode, err.Error()
 }
