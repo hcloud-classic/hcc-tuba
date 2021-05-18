@@ -2,6 +2,7 @@ package dao
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hcc/tuba/lib/fileutil"
 	"hcc/tuba/lib/syscheck"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -129,8 +131,8 @@ func findThreadFromModelTaskList(pid int) *model.Task {
 	return nil
 }
 
-func getProcessStartTime(pid int) string {
-	cmd := exec.Command("sh", "-c", "ps -o lstart= -p "+strconv.Itoa(pid))
+func getProcessTime(pid int) string {
+	cmd := exec.Command("sh", "-c", "ps -o time= -p "+strconv.Itoa(pid))
 	out, err := cmd.Output()
 	if err != nil {
 		return "error"
@@ -141,8 +143,8 @@ func getProcessStartTime(pid int) string {
 	return value
 }
 
-func getThreadStartTime(pid int, spid int) string {
-	cmd := exec.Command("sh", "-c", "ps -o spid=,lstart= -p "+strconv.Itoa(pid)+" -T | grep -w "+strconv.Itoa(spid))
+func getThreadTime(pid int, spid int) string {
+	cmd := exec.Command("sh", "-c", "ps -o spid=,time= -p "+strconv.Itoa(pid)+" -T | grep -w "+strconv.Itoa(spid))
 	out, err := cmd.Output()
 	if err != nil {
 		return "error"
@@ -408,23 +410,11 @@ func getProcData(pid int, procData string) string {
 		return "error"
 	}
 
-	value := strings.TrimSpace(string(data))
-
-	return value
-}
-
-func getCmdline(pid int) string {
-	data, err := readProcFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
-	if err != nil {
-		return "error"
-	}
-	if data == nil {
-		return "error"
-	}
-
-	for i := range data {
-		if data[i] == '\u0000' {
-			data[i] = '\u0020'
+	if procData == "cmdline" {
+		for i := range data {
+			if data[i] == '\u0000' {
+				data[i] = '\u0020'
+			}
 		}
 	}
 
@@ -476,19 +466,20 @@ func getTask(pid pid) *model.Task {
 		EPMType:    "NOT_SUPPORTED",
 		EPMSource:  0,
 		EPMTarget:  0,
+		IsThread:   false,
 	}
 
 	if pid.isNew {
-		task.StartTime = getProcessStartTime(_pid)
-		task.CMDLine = getCmdline(_pid)
+		task.Time = getProcessTime(_pid)
+		task.CMDLine = getProcData(_pid, "cmdline")
 	} else {
 		tsk := findTaskFromModelTaskList(_pid)
 		if tsk != nil {
-			task.StartTime = tsk.StartTime
+			task.Time = tsk.Time
 			task.CMDLine = tsk.CMDLine
 		} else {
-			task.StartTime = getProcessStartTime(_pid)
-			task.CMDLine = getCmdline(_pid)
+			task.Time = getProcessTime(_pid)
+			task.CMDLine = getProcData(_pid, "cmdline")
 		}
 	}
 
@@ -540,19 +531,20 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 		EPMType:    "NOT_SUPPORTED",
 		EPMSource:  0,
 		EPMTarget:  0,
+		IsThread:   true,
 	}
 
 	if isNew {
-		task.StartTime = getThreadStartTime(parent.PID, spid)
-		task.CMDLine = getCmdline(spid)
+		task.Time = getThreadTime(parent.PID, spid)
+		task.CMDLine = getProcData(spid, "cmdline")
 	} else {
 		tsk := findThreadFromModelTaskList(spid)
 		if tsk != nil {
-			task.StartTime = tsk.StartTime
+			task.Time = tsk.Time
 			task.CMDLine = tsk.CMDLine
 		} else {
-			task.StartTime = getThreadStartTime(parent.PID, spid)
-			task.CMDLine = getCmdline(spid)
+			task.Time = getThreadTime(parent.PID, spid)
+			task.CMDLine = getProcData(spid, "cmdline")
 		}
 	}
 
@@ -571,6 +563,16 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 	}
 
 	return &task
+}
+
+func isThreadExist(oldThreadPIDs *[]int, threadPID int) bool {
+	for _, pid := range *oldThreadPIDs {
+		if pid == threadPID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func deleteTaskFromTaskList(tasks *[]model.Task, pid int) {
@@ -605,6 +607,136 @@ func attachChildToParent(tasks *[]model.Task, child *model.Task, ppid int) (atta
 	return false
 }
 
+func checkSortingMethod(sortBy string) error {
+	sortBy = strings.ToLower(sortBy)
+
+	switch sortBy {
+	case "cmd", "state", "pid", "ppid", "pgid", "sid", "priority", "nice", "time", "cpu_usage", "mem_usage", "emp_type", "epm_target", "epm_source", "cmdline":
+		goto OUT
+	default:
+		return errors.New("unknown sorting method")
+	}
+
+OUT:
+	return nil
+}
+
+func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
+	sortBy = strings.ToLower(sortBy)
+
+	switch sortBy {
+	case "cmd":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return strings.ToLower((*taskList)[i].CMD) > strings.ToLower((*taskList)[j].CMD)
+			}
+			return strings.ToLower((*taskList)[i].CMD) < strings.ToLower((*taskList)[j].CMD)
+		})
+	case "state":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].State > (*taskList)[j].State
+			}
+			return (*taskList)[i].State < (*taskList)[j].State
+		})
+	case "pid":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].PID > (*taskList)[j].PID
+			}
+			return (*taskList)[i].PID < (*taskList)[j].PID
+		})
+	case "ppid":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].PPID > (*taskList)[j].PPID
+			}
+			return (*taskList)[i].PPID < (*taskList)[j].PPID
+		})
+	case "pgid":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].PGID > (*taskList)[j].PGID
+			}
+			return (*taskList)[i].PGID < (*taskList)[j].PGID
+		})
+	case "sid":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].SID > (*taskList)[j].SID
+			}
+			return (*taskList)[i].SID < (*taskList)[j].SID
+		})
+	case "priority":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].Priority > (*taskList)[j].Priority
+			}
+			return (*taskList)[i].Priority < (*taskList)[j].Priority
+		})
+	case "nice":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].Nice > (*taskList)[j].Nice
+			}
+			return (*taskList)[i].Nice < (*taskList)[j].Nice
+		})
+	case "time":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].Time > (*taskList)[j].Time
+			}
+			return (*taskList)[i].Time < (*taskList)[j].Time
+		})
+	case "cpu_usage":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].CPUUsage > (*taskList)[j].CPUUsage
+			}
+			return (*taskList)[i].CPUUsage < (*taskList)[j].CPUUsage
+		})
+	case "mem_usage":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].MemUsage > (*taskList)[j].MemUsage
+			}
+			return (*taskList)[i].MemUsage < (*taskList)[j].MemUsage
+		})
+	case "epm_type":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].EPMType > (*taskList)[j].EPMType
+			}
+			return (*taskList)[i].EPMType < (*taskList)[j].EPMType
+		})
+	case "epm_target":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].EPMTarget > (*taskList)[j].EPMTarget
+			}
+			return (*taskList)[i].EPMTarget < (*taskList)[j].EPMTarget
+		})
+	case "epm_source":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].EPMSource > (*taskList)[j].EPMSource
+			}
+			return (*taskList)[i].EPMSource < (*taskList)[j].EPMSource
+		})
+	case "cmdline":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return strings.ToLower((*taskList)[i].CMDLine) > strings.ToLower((*taskList)[j].CMDLine)
+			}
+			return strings.ToLower((*taskList)[i].CMDLine) < strings.ToLower((*taskList)[j].CMDLine)
+		})
+	default:
+		return errors.New("unknown sorting method")
+	}
+
+	return nil
+}
+
 func makeTaskTree(tasks *[]model.Task) []model.Task {
 	var newTasks = *tasks
 
@@ -632,21 +764,21 @@ func makeTaskTree(tasks *[]model.Task) []model.Task {
 	return newTasks
 }
 
-func isThreadExist(oldThreadPIDs *[]int, threadPID int) bool {
-	for _, pid := range *oldThreadPIDs {
-		if pid == threadPID {
-			return true
-		}
-	}
-
-	return false
-}
-
 // ReadTaskList : Get list of task with selected infos
-func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
+func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 	var newModelTaskList []model.Task
 	var resGetTaskList pb.ResGetTaskList
 	var taskList model.TaskList
+	var sortingMethod = reqGetTaskList.GetSortBy()
+	var needSorting = false
+
+	if sortingMethod != "" {
+		err := checkSortingMethod(sortingMethod)
+		if err != nil {
+			return nil, hcc_errors.HccErrorTestCode, err.Error()
+		}
+		needSorting = true
+	}
 
 	pidList, err := getPIDList()
 	if err != nil {
@@ -695,7 +827,13 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 					continue
 				}
 
-				task.Threads = append(task.Threads, *thread)
+				if needSorting {
+					taskListAppendLock.Lock()
+					newModelTaskList = append(newModelTaskList, *thread)
+					taskListAppendLock.Unlock()
+				} else {
+					task.Threads = append(task.Threads, *thread)
+				}
 			}
 
 			taskListAppendLock.Lock()
@@ -717,7 +855,15 @@ func ReadTaskList() (*pb.ResGetTaskList, uint64, string) {
 	taskList.TotalMemUsagePercent = getTotalMemUsagePercent(totalMemUsageKB, totalMemKB)
 	taskList.TotalCPUUsage = getTotalCPUUsage(modelTaskList)
 
-	taskList.Tasks = makeTaskTree(&modelTaskList)
+	if needSorting {
+		err := sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
+		if err != nil {
+			return nil, hcc_errors.HccErrorTestCode, err.Error()
+		}
+		taskList.Tasks = modelTaskList
+	} else {
+		taskList.Tasks = makeTaskTree(&modelTaskList)
+	}
 
 	result, err := json.Marshal(taskList)
 	resGetTaskList.Result = result
