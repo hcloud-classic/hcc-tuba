@@ -131,6 +131,33 @@ func findThreadFromModelTaskList(pid int) *model.Task {
 	return nil
 }
 
+func getUserID(pid int) string {
+	cmd := exec.Command("sh", "-c", "stat -c %u /proc/"+strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return "error"
+	}
+
+	value := strings.TrimSpace(string(out))
+
+	return value
+}
+
+func getUserName(pid int) string {
+	cmd := exec.Command("sh", "-c", "stat -c %U /proc/"+strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return "error"
+	}
+
+	value := strings.TrimSpace(string(out))
+	if value == "UNKNOWN" {
+		return getUserID(pid)
+	}
+
+	return value
+}
+
 func getProcessTime(pid int) string {
 	cmd := exec.Command("sh", "-c", "ps -o time= -p "+strconv.Itoa(pid))
 	out, err := cmd.Output()
@@ -172,10 +199,13 @@ func getCPUUsage(pid int) string {
 	return value + "%"
 }
 
-func getTotalCPUUsage(tasks []model.Task) string {
+func getTotalCPUUsage(tasks *[]model.Task) string {
 	var usage float64 = 0
 
-	for _, task := range tasks {
+	for _, task := range *tasks {
+		if task.IsThread {
+			continue
+		}
 		taskCPUUsage := task.CPUUsage[:len(task.CPUUsage)-1]
 		usageFloat, _ := strconv.ParseFloat(taskCPUUsage, 2)
 
@@ -394,6 +424,8 @@ func getStatFromProc(pid int, task *model.Task) error {
 		&task.Nice,
 		&task.NumThreads)
 
+	(*task).NumThreads--
+
 	return nil
 }
 
@@ -453,6 +485,7 @@ func getTask(pid pid) *model.Task {
 		CMD:        "",
 		State:      "",
 		PID:        _pid,
+		User:       getUserName(_pid),
 		PPID:       0,
 		PGID:       0,
 		SID:        0,
@@ -487,7 +520,7 @@ func getTask(pid pid) *model.Task {
 
 	err := getStatFromProc(_pid, &task)
 	if err != nil {
-		fmt.Printf("getThread(): getStatFromProc(): PID: %d, Error: %s\n", pid, err.Error())
+		fmt.Printf("getTask(): getStatFromProc(): PID: %d, Error: %s\n", _pid, err.Error())
 		return nil
 	}
 
@@ -518,6 +551,7 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 		CMD:        "",
 		State:      "",
 		PID:        spid,
+		User:       parent.User,
 		PPID:       0,
 		PGID:       0,
 		SID:        0,
@@ -611,7 +645,7 @@ func checkSortingMethod(sortBy string) error {
 	sortBy = strings.ToLower(sortBy)
 
 	switch sortBy {
-	case "cmd", "state", "pid", "ppid", "pgid", "sid", "priority", "nice", "time", "cpu_usage", "mem_usage", "emp_type", "epm_target", "epm_source", "cmdline":
+	case "cmd", "state", "pid", "user", "ppid", "pgid", "sid", "priority", "nice", "time", "cpu_usage", "mem_usage", "emp_type", "epm_target", "epm_source", "cmdline":
 		goto OUT
 	default:
 		return errors.New("unknown sorting method")
@@ -645,6 +679,13 @@ func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
 				return (*taskList)[i].PID > (*taskList)[j].PID
 			}
 			return (*taskList)[i].PID < (*taskList)[j].PID
+		})
+	case "user":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].User > (*taskList)[j].User
+			}
+			return (*taskList)[i].User < (*taskList)[j].User
 		})
 	case "ppid":
 		sort.Slice(*taskList, func(i, j int) bool {
@@ -767,10 +808,12 @@ func makeTaskTree(tasks *[]model.Task) []model.Task {
 // ReadTaskList : Get list of task with selected infos
 func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 	var newModelTaskList []model.Task
+	var threads = 0
 	var resGetTaskList pb.ResGetTaskList
 	var taskList model.TaskList
 	var sortingMethod = reqGetTaskList.GetSortBy()
 	var needSorting = false
+	var hideThreads = reqGetTaskList.GetHideThreads()
 
 	if sortingMethod != "" {
 		err := checkSortingMethod(sortingMethod)
@@ -787,6 +830,7 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 
 	var wait sync.WaitGroup
 	var taskListAppendLock sync.Mutex
+	var totalThreadsLock sync.Mutex
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
@@ -810,29 +854,35 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 				}
 			}
 
-			pid = task.PID
-			threadsPIDs, err = getThreadsPIDs(pid)
-			if err != nil {
-				fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
-			}
-
-			for _, threadPID := range threadsPIDs {
-				if pid == threadPID {
-					continue
+			if !hideThreads {
+				pid = task.PID
+				threadsPIDs, err = getThreadsPIDs(pid)
+				if err != nil {
+					fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
 				}
 
-				isNew := isThreadExist(&oldThreadsPIDs, threadPID)
-				thread := getThread(task, threadPID, isNew)
-				if thread == nil {
-					continue
-				}
+				for _, threadPID := range threadsPIDs {
+					if pid == threadPID {
+						continue
+					}
 
-				if needSorting {
-					taskListAppendLock.Lock()
-					newModelTaskList = append(newModelTaskList, *thread)
-					taskListAppendLock.Unlock()
-				} else {
-					task.Threads = append(task.Threads, *thread)
+					isNew := isThreadExist(&oldThreadsPIDs, threadPID)
+					thread := getThread(task, threadPID, isNew)
+					if thread == nil {
+						continue
+					}
+
+					totalThreadsLock.Lock()
+					threads++
+					totalThreadsLock.Unlock()
+
+					if needSorting {
+						taskListAppendLock.Lock()
+						newModelTaskList = append(newModelTaskList, *thread)
+						taskListAppendLock.Unlock()
+					} else {
+						task.Threads = append(task.Threads, *thread)
+					}
 				}
 			}
 
@@ -847,13 +897,18 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 
 	modelTaskList = newModelTaskList
 
-	taskList.TotalTasks = len(modelTaskList)
+	if needSorting {
+		taskList.TotalTasks = len(modelTaskList) - threads
+	} else {
+		taskList.TotalTasks = len(modelTaskList)
+	}
+	taskList.TotalThreads = threads
 	var totalMemUsageKB int64 = 0
 	taskList.TotalMemUsage, totalMemUsageKB = getTotalMemUsage()
 	var totalMemKB int64 = 0
 	taskList.TotalMem, totalMemKB = getTotalMem()
 	taskList.TotalMemUsagePercent = getTotalMemUsagePercent(totalMemUsageKB, totalMemKB)
-	taskList.TotalCPUUsage = getTotalCPUUsage(modelTaskList)
+	taskList.TotalCPUUsage = getTotalCPUUsage(&modelTaskList)
 
 	if needSorting {
 		err := sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
