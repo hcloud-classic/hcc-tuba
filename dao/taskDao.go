@@ -23,6 +23,26 @@ import (
 
 var modelTaskList []model.Task
 
+// TotalMem : Total size of memory
+var TotalMem int64
+
+// GetTotalMem : Return total size memory by KB int64
+func GetTotalMem() error {
+	cmd := exec.Command("sh", "-c",
+		"cat /proc/meminfo | grep -iw MemTotal | tr -s ' ' | cut -f2 -d' '")
+	out, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+
+	val := strings.TrimSpace(string(out))
+	memKB, _ := strconv.ParseInt(val, 0, 64)
+
+	TotalMem = memKB
+
+	return nil
+}
+
 type pid struct {
 	pid   int
 	isNew bool
@@ -185,7 +205,7 @@ func getThreadTime(pid int, spid int) string {
 
 func getCPUUsage(pid int) string {
 	cmd := exec.Command("sh", "-c",
-		"ps up "+strconv.Itoa(pid)+" | tail -n1 | grep -iv \"%CPU\" | tr -s ' ' | cut -f3 -d' '")
+		"ps up "+strconv.Itoa(pid)+" | tail -n1 | tr -s ' ' | cut -f3 -d' '")
 	out, err := cmd.Output()
 	if err != nil {
 		return "error"
@@ -199,164 +219,74 @@ func getCPUUsage(pid int) string {
 	return value + "%"
 }
 
-func getTotalCPUUsage(tasks *[]model.Task) string {
-	var usage float64 = 0
-
-	for _, task := range *tasks {
-		if task.IsThread {
-			continue
-		}
-		taskCPUUsage := task.CPUUsage[:len(task.CPUUsage)-1]
-		usageFloat, _ := strconv.ParseFloat(taskCPUUsage, 2)
-
-		usage += usageFloat
-	}
-
-	value := fmt.Sprintf("%.1f", usage)
-
-	return value + "%"
-}
-
-func getMemUsage(task *model.Task, getByKB bool) string {
-	cmd := exec.Command("sh", "-c",
-		"cat /proc/"+strconv.Itoa(task.PID)+"/status | grep -iw VmRSS | tr -d '\\t' | tr -s ' ' | cut -f2 -d' '")
-	out, err := cmd.Output()
-	if err != nil {
-		return "error"
-	}
-
-	val := strings.TrimSpace(string(out))
-	vmRssKB, _ := strconv.ParseInt(val, 0, 64)
-	if !getByKB && vmRssKB > 999 {
-		dot := vmRssKB % 1024
-		vmRssMB := float32(vmRssKB) / 1024
-		if vmRssMB > 999 {
-			vmRssGB := vmRssMB / 1024
-			if vmRssGB > 999 {
-				vmRssTB := vmRssGB / 1024
+func getSize(kbValue int) string {
+	if kbValue > 999 {
+		dot := kbValue % 1024
+		resultMB := float32(kbValue) / 1024
+		if resultMB > 999 {
+			resultGB := resultMB / 1024
+			if resultGB > 999 {
+				resultTB := resultGB / 1024
 				if dot != 0 {
-					return fmt.Sprintf("%.2f", vmRssTB) + "TB"
+					return fmt.Sprintf("%.2f", resultTB) + "TB"
 				}
 
-				return strconv.Itoa(int(vmRssTB)) + "TB"
+				return strconv.Itoa(int(resultTB)) + "TB"
 			}
 			if dot != 0 {
-				return fmt.Sprintf("%.2f", vmRssGB) + "GB"
+				return fmt.Sprintf("%.2f", resultGB) + "GB"
 			}
 
-			return strconv.Itoa(int(vmRssGB)) + "GB"
+			return strconv.Itoa(int(resultGB)) + "GB"
 		}
 		if dot != 0 {
-			return fmt.Sprintf("%.2f", vmRssMB) + "MB"
+			return fmt.Sprintf("%.2f", resultMB) + "MB"
 		}
 
-		return strconv.Itoa(int(vmRssMB)) + "MB"
+		return strconv.Itoa(int(resultMB)) + "MB"
 	}
 
-	return strconv.Itoa(int(vmRssKB)) + "KB"
+	return strconv.Itoa(kbValue) + "KB"
 }
 
-func getMemInfo(content string) (int64, error) {
-	cmd := exec.Command("sh", "-c",
-		"cat /proc/meminfo | grep -iw "+content+" | tr -s ' ' | cut -f2 -d' '")
-	out, err := cmd.Output()
-	if err != nil {
-		return 0, err
-	}
-
-	val, err := strconv.ParseInt(strings.TrimSpace(string(out)), 0, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return val, nil
-}
-
-// getTotalMemUsage : Return total memory usage by parsed string and KB int
-func getTotalMemUsage() (string, int64) {
-	memTotal, err := getMemInfo("MemTotal")
-	if err != nil {
-		return "error", 0
-	}
-	memFree, err := getMemInfo("MemFree")
-	if err != nil {
-		return "error", 0
-	}
-	buffers, err := getMemInfo("Buffers")
-	if err != nil {
-		return "error", 0
-	}
-	cached, err := getMemInfo("Cached")
-	if err != nil {
-		return "error", 0
-	}
-
-	totalMemUsageKB := memTotal - (memFree + buffers + cached)
-
-	if totalMemUsageKB > 999 {
-		dot := totalMemUsageKB % 1024
-		memTotalMB := float32(totalMemUsageKB) / 1024
-		if memTotalMB > 999 {
-			memTotalGB := memTotalMB / 1024
-			if memTotalGB > 999 {
-				memTotalTB := memTotalGB / 1024
-				if dot != 0 {
-					return fmt.Sprintf("%.2f", memTotalTB) + "TB", totalMemUsageKB
-				}
-
-				return strconv.Itoa(int(memTotalTB)) + "TB", totalMemUsageKB
-			}
-			if dot != 0 {
-				return fmt.Sprintf("%.2f", memTotalGB) + "GB", totalMemUsageKB
-			}
-
-			return strconv.Itoa(int(memTotalGB)) + "GB", totalMemUsageKB
-		}
-		if dot != 0 {
-			return fmt.Sprintf("%.2f", memTotalMB) + "MB", totalMemUsageKB
-		}
-
-		return strconv.Itoa(int(memTotalMB)) + "MB", totalMemUsageKB
-	}
-
-	return strconv.Itoa(int(totalMemUsageKB)) + "KB", totalMemUsageKB
-}
-
-// getTotalMem : Return total memory by parsed string and KB int
-func getTotalMem() (string, int64) {
-	cmd := exec.Command("sh", "-c",
-		"cat /proc/meminfo | grep -iw MemTotal | tr -s ' ' | cut -f2 -d' '")
-	out, err := cmd.Output()
-	if err != nil {
-		return "error", 0
-	}
-
-	val := strings.TrimSpace(string(out))
-	memKB, _ := strconv.ParseInt(val, 0, 64)
-	if memKB > 999 {
-		memMB := memKB / 1000
-		if memMB > 999 {
-			memGB := memMB / 1000
-			if memGB > 999 {
-				memTB := memGB / 1000
-
-				return strconv.Itoa(int(memTB)) + "TB", memKB
-			}
-
-			return strconv.Itoa(int(memGB)) + "GB", memKB
-		}
-
-		return strconv.Itoa(int(memMB)) + "MB", memKB
-	}
-
-	return strconv.Itoa(int(memKB)) + "KB", memKB
-}
-
-func getTotalMemUsagePercent(totalMemUsage int64, memTotal int64) string {
-	calcUsage := float32(totalMemUsage) / float32(memTotal) * 100
+func getMemUsagePercent(memUsage int64) string {
+	calcUsage := float32(memUsage) / float32(TotalMem) * 100
 	value := fmt.Sprintf("%.2f", calcUsage)
 
 	return value + "%"
+}
+
+func getProcMemory(task *model.Task) {
+	out := getProcData(task.PID, "status")
+
+	out = strings.Replace(out, "\t", " ", -1)
+	out = strings.Replace(out, " ", "", -1)
+	lines := strings.Split(out, "\n")
+
+	for _, line := range lines {
+		if strings.Contains(line, "VmRSS") {
+			val := strings.Split(line, ":")
+			if len(val) == 2 {
+				memRes, _ := strconv.ParseInt(val[1][:len(val[1])-2], 0, 64)
+				task.MemRes = getSize(int(memRes))
+				task.MemPercent = getMemUsagePercent(memRes)
+			}
+		} else if strings.Contains(line, "VmSize") {
+			val := strings.Split(line, ":")
+			if len(val) == 2 {
+				memVirt, _ := strconv.ParseInt(val[1][:len(val[1])-2], 0, 64)
+				task.MemVirt = getSize(int(memVirt))
+			}
+		}
+	}
+
+	out = getProcData(task.PID, "statm")
+	val := strings.Split(out, " ")
+	if len(val) >= 3 {
+		memShr, _ := strconv.ParseInt(val[2], 0, 64)
+		memShr = memShr << (syscheck.PageShift - 10)
+		task.MemShr = getSize(int(memShr))
+	}
 }
 
 func readProcFile(filename string) ([]byte, error) {
@@ -390,41 +320,28 @@ func getStatFromProc(pid int, task *model.Task) error {
 	binEnd := strings.IndexRune(data[binStart:], ')')
 	task.CMD = data[binStart : binStart+binEnd]
 
-	var ttyNr = 0
-	var ttyPgrp = 0
-	var flags = 0
-	var minFlt = 0
-	var cminFlt = 0
-	var majFlt = 0
-	var cmajFlt = 0
-	var utime = 0
-	var stime = 0
-	var cutime = 0
-	var cstime = 0
+	var dummy = 0
 
 	data = data[binStart+binEnd+2:]
 	_, err = fmt.Sscanf(data,
-		"%s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+		"%s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
 		&task.State,
 		&task.PPID,
-		&task.PGID,
-		&task.SID,
-		&ttyNr,
-		&ttyPgrp,
-		&flags,
-		&minFlt,
-		&cminFlt,
-		&majFlt,
-		&cmajFlt,
-		&utime,
-		&stime,
-		&cutime,
-		&cstime,
+		&dummy, // pgid
+		&dummy, // sid
+		&dummy, // tty_nr
+		&dummy, // tty_pgrp
+		&dummy, // flags
+		&dummy, // min_flt
+		&dummy, // cmin_flt
+		&dummy, // maj_flt
+		&dummy, // cmaj_flt
+		&dummy, // utime
+		&dummy, // stime
+		&dummy, // cutime
+		&dummy, // cstime
 		&task.Priority,
-		&task.Nice,
-		&task.NumThreads)
-
-	(*task).NumThreads--
+		&task.Nice)
 
 	return nil
 }
@@ -487,20 +404,20 @@ func getTask(pid pid) *model.Task {
 		PID:        _pid,
 		User:       getUserName(_pid),
 		PPID:       0,
-		PGID:       0,
-		SID:        0,
 		Priority:   0,
 		Nice:       0,
-		NumThreads: 0,
 		Children:   emptyTaskList,
 		Threads:    emptyTaskList,
 		CPUUsage:   getCPUUsage(_pid),
-		MemUsage:   "0KB",
-		EPMType:    "NOT_SUPPORTED",
-		EPMSource:  0,
+		MemVirt:    "error",
+		MemRes:     "error",
+		MemShr:     "error",
+		MemPercent: "error",
 		EPMTarget:  0,
 		IsThread:   false,
 	}
+
+	getProcMemory(&task)
 
 	if pid.isNew {
 		task.Time = getProcessTime(_pid)
@@ -516,8 +433,6 @@ func getTask(pid pid) *model.Task {
 		}
 	}
 
-	task.MemUsage = getMemUsage(&task, false)
-
 	err := getStatFromProc(_pid, &task)
 	if err != nil {
 		fmt.Printf("getTask(): getStatFromProc(): PID: %d, Error: %s\n", _pid, err.Error())
@@ -525,15 +440,8 @@ func getTask(pid pid) *model.Task {
 	}
 
 	if syscheck.EPMProcSupported {
-		task.EPMType = getProcData(_pid, "epm_type")
-		src, _ := strconv.Atoi(getProcData(_pid, "epm_source"))
-		task.EPMSource = src
-		if task.EPMType == "EPM_NO_ACTION" {
-			task.EPMTarget = src
-		} else {
-			target, _ := strconv.Atoi(getProcData(_pid, "epm_target"))
-			task.EPMTarget = target
-		}
+		target, _ := strconv.Atoi(getProcData(_pid, "epm_target"))
+		task.EPMTarget = target
 	}
 
 	return &task
@@ -553,17 +461,15 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 		PID:        spid,
 		User:       parent.User,
 		PPID:       0,
-		PGID:       0,
-		SID:        0,
 		Priority:   0,
 		Nice:       0,
-		NumThreads: 0,
 		Children:   emptyTaskList,
 		Threads:    emptyTaskList,
 		CPUUsage:   getCPUUsage(spid),
-		MemUsage:   parent.MemUsage,
-		EPMType:    "NOT_SUPPORTED",
-		EPMSource:  0,
+		MemVirt:    parent.MemVirt,
+		MemRes:     parent.MemRes,
+		MemShr:     parent.MemShr,
+		MemPercent: parent.MemPercent,
 		EPMTarget:  0,
 		IsThread:   true,
 	}
@@ -589,9 +495,6 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 	}
 
 	if syscheck.EPMProcSupported {
-		task.EPMType = getProcData(spid, "epm_type")
-		src, _ := strconv.Atoi(getProcData(spid, "epm_source"))
-		task.EPMSource = src
 		target, _ := strconv.Atoi(getProcData(spid, "epm_target"))
 		task.EPMTarget = target
 	}
@@ -645,7 +548,7 @@ func checkSortingMethod(sortBy string) error {
 	sortBy = strings.ToLower(sortBy)
 
 	switch sortBy {
-	case "cmd", "state", "pid", "user", "ppid", "pgid", "sid", "priority", "nice", "time", "cpu_usage", "mem_usage", "emp_type", "epm_target", "epm_source", "cmdline":
+	case "cmd", "state", "pid", "user", "ppid", "priority", "nice", "time", "cpu_usage", "mem_virt", "mem_res", "mem_shr", "mem_percent", "epm_target", "cmdline":
 		goto OUT
 	default:
 		return errors.New("unknown sorting method")
@@ -694,20 +597,6 @@ func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
 			}
 			return (*taskList)[i].PPID < (*taskList)[j].PPID
 		})
-	case "pgid":
-		sort.Slice(*taskList, func(i, j int) bool {
-			if reverse {
-				return (*taskList)[i].PGID > (*taskList)[j].PGID
-			}
-			return (*taskList)[i].PGID < (*taskList)[j].PGID
-		})
-	case "sid":
-		sort.Slice(*taskList, func(i, j int) bool {
-			if reverse {
-				return (*taskList)[i].SID > (*taskList)[j].SID
-			}
-			return (*taskList)[i].SID < (*taskList)[j].SID
-		})
 	case "priority":
 		sort.Slice(*taskList, func(i, j int) bool {
 			if reverse {
@@ -736,19 +625,33 @@ func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
 			}
 			return (*taskList)[i].CPUUsage < (*taskList)[j].CPUUsage
 		})
-	case "mem_usage":
+	case "mem_virt":
 		sort.Slice(*taskList, func(i, j int) bool {
 			if reverse {
-				return (*taskList)[i].MemUsage > (*taskList)[j].MemUsage
+				return (*taskList)[i].MemVirt > (*taskList)[j].MemVirt
 			}
-			return (*taskList)[i].MemUsage < (*taskList)[j].MemUsage
+			return (*taskList)[i].MemVirt < (*taskList)[j].MemVirt
 		})
-	case "epm_type":
+	case "mem_res":
 		sort.Slice(*taskList, func(i, j int) bool {
 			if reverse {
-				return (*taskList)[i].EPMType > (*taskList)[j].EPMType
+				return (*taskList)[i].MemRes > (*taskList)[j].MemRes
 			}
-			return (*taskList)[i].EPMType < (*taskList)[j].EPMType
+			return (*taskList)[i].MemRes < (*taskList)[j].MemRes
+		})
+	case "mem_shr":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].MemShr > (*taskList)[j].MemShr
+			}
+			return (*taskList)[i].MemShr < (*taskList)[j].MemShr
+		})
+	case "mem_percent":
+		sort.Slice(*taskList, func(i, j int) bool {
+			if reverse {
+				return (*taskList)[i].MemPercent > (*taskList)[j].MemPercent
+			}
+			return (*taskList)[i].MemPercent < (*taskList)[j].MemPercent
 		})
 	case "epm_target":
 		sort.Slice(*taskList, func(i, j int) bool {
@@ -756,13 +659,6 @@ func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
 				return (*taskList)[i].EPMTarget > (*taskList)[j].EPMTarget
 			}
 			return (*taskList)[i].EPMTarget < (*taskList)[j].EPMTarget
-		})
-	case "epm_source":
-		sort.Slice(*taskList, func(i, j int) bool {
-			if reverse {
-				return (*taskList)[i].EPMSource > (*taskList)[j].EPMSource
-			}
-			return (*taskList)[i].EPMSource < (*taskList)[j].EPMSource
 		})
 	case "cmdline":
 		sort.Slice(*taskList, func(i, j int) bool {
@@ -805,6 +701,8 @@ func makeTaskTree(tasks *[]model.Task) []model.Task {
 	return newTasks
 }
 
+var readTaskListLock sync.Mutex
+
 // ReadTaskList : Get list of task with selected infos
 func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64, string) {
 	var newModelTaskList []model.Task
@@ -815,22 +713,28 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 	var needSorting = false
 	var hideThreads = reqGetTaskList.GetHideThreads()
 
-	if sortingMethod != "" {
-		err := checkSortingMethod(sortingMethod)
-		if err != nil {
-			return nil, hcc_errors.HccErrorTestCode, err.Error()
-		}
-		needSorting = true
-	}
-
-	pidList, err := getPIDList()
-	if err != nil {
-		return nil, hcc_errors.HccErrorTestCode, err.Error()
-	}
+	var pidList []pid
+	var result []byte
+	var err error
 
 	var wait sync.WaitGroup
 	var taskListAppendLock sync.Mutex
 	var totalThreadsLock sync.Mutex
+
+	readTaskListLock.Lock()
+
+	if sortingMethod != "" {
+		err = checkSortingMethod(sortingMethod)
+		if err != nil {
+			goto ERROR
+		}
+		needSorting = true
+	}
+
+	pidList, err = getPIDList()
+	if err != nil {
+		goto ERROR
+	}
 
 	wait.Add(len(pidList))
 	for _, p := range pidList {
@@ -903,25 +807,23 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 		taskList.TotalTasks = len(modelTaskList)
 	}
 	taskList.TotalThreads = threads
-	var totalMemUsageKB int64 = 0
-	taskList.TotalMemUsage, totalMemUsageKB = getTotalMemUsage()
-	var totalMemKB int64 = 0
-	taskList.TotalMem, totalMemKB = getTotalMem()
-	taskList.TotalMemUsagePercent = getTotalMemUsagePercent(totalMemUsageKB, totalMemKB)
-	taskList.TotalCPUUsage = getTotalCPUUsage(&modelTaskList)
 
 	if needSorting {
-		err := sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
+		err = sortTaskList(&modelTaskList, sortingMethod, reqGetTaskList.GetReverseSorting())
 		if err != nil {
-			return nil, hcc_errors.HccErrorTestCode, err.Error()
+			goto ERROR
 		}
 		taskList.Tasks = modelTaskList
 	} else {
 		taskList.Tasks = makeTaskTree(&modelTaskList)
 	}
 
-	result, err := json.Marshal(taskList)
+	result, err = json.Marshal(taskList)
 	resGetTaskList.Result = result
 
+	readTaskListLock.Unlock()
 	return &resGetTaskList, 0, ""
+ERROR:
+	readTaskListLock.Unlock()
+	return nil, hcc_errors.HccErrorTestCode, err.Error()
 }

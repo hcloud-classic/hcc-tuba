@@ -11,18 +11,16 @@ type Task struct {
 	PID        int    `json:"pid"`
 	User       string `json:"user"`
 	PPID       int    `json:"ppid"`
-	PGID       int    `json:"pgid"`
-	SID        int    `json:"sid"`
 	Priority   int    `json:"priority"`
 	Nice       int    `json:"nice"`
-	NumThreads int    `json:"num_threads"`
 	Time       string `json:"time"`
 	Children   []Task `json:"children"`
 	Threads    []Task `json:"threads"`
 	CPUUsage   string `json:"cpu_usage"`
-	MemUsage   string `json:"mem_usage"`
-	EPMType    string `json:"epm_type"`
-	EPMSource  int    `json:"epm_source"`
+	MemVirt    string `json:"mem_virt"`
+	MemRes     string `json:"mem_res"`
+	MemShr     string `json:"mem_shr"`
+	MemPercent string `json:"mem_percent"`
 	EPMTarget  int    `json:"epm_target"`
 	CMDLine    string `json:"cmdline"`
 	IsThread   bool   `json:"is_thread"`
@@ -30,13 +28,9 @@ type Task struct {
 
 // TaskList : Array struct of tasks
 type TaskList struct {
-	Tasks                []Task `json:"task_list"`
-	TotalTasks           int    `json:"total_tasks"`
-	TotalThreads         int    `json:"total_threads"`
-	TotalMemUsage        string `json:"total_mem_usage"`
-	TotalMem             string `json:"total_mem"`
-	TotalMemUsagePercent string `json:"total_mem_usage_percent"`
-	TotalCPUUsage        string `json:"total_cpu_usage"`
+	Tasks        []Task `json:"task_list"`
+	TotalTasks   int    `json:"total_tasks"`
+	TotalThreads int    `json:"total_threads"`
 }
 
 // TaskListResult : Array struct of taskListResult

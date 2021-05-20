@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"hcc/tuba/action/grpc/server"
+	"hcc/tuba/dao"
 	"hcc/tuba/lib/config"
 	"hcc/tuba/lib/logger"
 	"hcc/tuba/lib/pid"
@@ -15,7 +16,7 @@ import (
 )
 
 func init() {
-	err, tubaRunning, tubaPID := pid.IsTubaRunning()
+	tubaRunning, tubaPID, err := pid.IsTubaRunning()
 	if err != nil {
 		fmt.Println(err)
 		panic(err)
@@ -38,6 +39,20 @@ func init() {
 		panic(err)
 	}
 
+	err = syscheck.GetPageShift()
+	if err != nil {
+		fmt.Println(err.Error())
+		_ = pid.DeleteTubaPID()
+		panic(err)
+	}
+
+	err = syscheck.IncreaseRLimitToMax()
+	if err != nil {
+		fmt.Println(err.Error())
+		_ = pid.DeleteTubaPID()
+		panic(err)
+	}
+
 	syscheck.CheckEPMProc()
 	if syscheck.EPMProcSupported {
 		fmt.Println("EPMProc is supported by the kernel")
@@ -47,6 +62,13 @@ func init() {
 
 	err = syscheck.CheckRoot()
 	if err != nil {
+		_ = pid.DeleteTubaPID()
+		panic(err)
+	}
+
+	err = dao.GetTotalMem()
+	if err != nil {
+		fmt.Println("Failed to get total size of memory.")
 		_ = pid.DeleteTubaPID()
 		panic(err)
 	}
