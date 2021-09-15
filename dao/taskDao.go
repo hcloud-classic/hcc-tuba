@@ -18,7 +18,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 var modelTaskList []model.Task
@@ -388,7 +390,31 @@ func getThreadsPIDs(pid int) ([]int, error) {
 	return threadsPIDs, nil
 }
 
+var maxTaskReadCount int64 = 10
+var taskReadCounter int64
+
+func incTaskReadCounter() {
+	atomic.AddInt64(&taskReadCounter, 1)
+}
+
+func decTaskReadCounter() {
+	atomic.AddInt64(&taskReadCounter, -1)
+}
+
 func getTask(pid pid) *model.Task {
+	for true {
+		if taskReadCounter >= maxTaskReadCount {
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			break
+		}
+	}
+
+	incTaskReadCounter()
+	defer func() {
+		decTaskReadCounter()
+	}()
+
 	var emptyTaskList []model.Task
 
 	_pid := pid.pid
@@ -448,6 +474,19 @@ func getTask(pid pid) *model.Task {
 }
 
 func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
+	for true {
+		if taskReadCounter >= maxTaskReadCount {
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			break
+		}
+	}
+
+	incTaskReadCounter()
+	defer func() {
+		decTaskReadCounter()
+	}()
+
 	var emptyTaskList []model.Task
 
 	if !isProcExist(spid) {
@@ -718,9 +757,9 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 	var result []byte
 	var err error
 
-	var routineMax = 100
 	var wait sync.WaitGroup
 	var taskListAppendLock sync.Mutex
+	var taskThreadListAppendLock sync.Mutex
 	var totalThreadsLock sync.Mutex
 
 	readTaskListLock.Lock()
@@ -739,15 +778,9 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 	}
 	pidListLen = len(pidList)
 
-	for i := 0; i < pidListLen; {
-		if pidListLen-i < routineMax {
-			routineMax = pidListLen - i
-		}
-
-		wait.Add(routineMax)
-
-		for j := 0; j < routineMax; j++ {
-			go func(wait *sync.WaitGroup, routinePID pid) {
+	wait.Add(pidListLen)
+	for _, p := range pidList {
+			go func(routinePID pid) {
 				var task *model.Task
 				var pid int
 				var threadsPIDs []int
@@ -774,45 +807,56 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 						fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
 					}
 
+					var wait2 sync.WaitGroup
+
+					wait2.Add(len(threadsPIDs))
 					for _, threadPID := range threadsPIDs {
-						if pid == threadPID {
-							continue
-						}
+						go func(routinePID int, routineThreadPID int) {
+							var isNew bool
+							var thread *model.Task
 
-						isNew := isThreadExist(&oldThreadsPIDs, threadPID)
-						thread := getThread(task, threadPID, isNew)
-						if thread == nil {
-							continue
-						}
+							if routinePID == routineThreadPID {
+								goto OUT2
+							}
 
-						totalThreadsLock.Lock()
-						threads++
-						totalThreadsLock.Unlock()
+							isNew = isThreadExist(&oldThreadsPIDs, routineThreadPID)
+							thread = getThread(task, routineThreadPID, isNew)
+							if thread == nil {
+								goto OUT2
+							}
 
-						if needSorting {
-							taskListAppendLock.Lock()
-							newModelTaskList = append(newModelTaskList, *thread)
-							taskListAppendLock.Unlock()
-						} else {
-							task.Threads = append(task.Threads, *thread)
-						}
+							totalThreadsLock.Lock()
+							threads++
+							totalThreadsLock.Unlock()
+
+							if needSorting {
+								taskListAppendLock.Lock()
+								newModelTaskList = append(newModelTaskList, *thread)
+								taskListAppendLock.Unlock()
+							} else {
+								taskThreadListAppendLock.Lock()
+								task.Threads = append(task.Threads, *thread)
+								taskThreadListAppendLock.Unlock()
+							}
+
+						OUT2:
+							wait2.Done()
+							return
+						}(pid, threadPID)
 					}
+					wait2.Wait()
 				}
 
 				taskListAppendLock.Lock()
 				newModelTaskList = append(newModelTaskList, *task)
 				taskListAppendLock.Unlock()
+
 			OUT:
 				wait.Done()
-			}(&wait, pidList[i])
-
-			i++
-			if i == pidListLen {
-				break
-			}
+				return
+			}(p)
 		}
-	}
-	wait.Wait()
+		wait.Wait()
 
 	modelTaskList = newModelTaskList
 
