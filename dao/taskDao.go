@@ -847,6 +847,10 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 					wait2.Wait()
 				}
 
+				if !needSorting {
+					_ = sortTaskList(&task.Threads, "pid", false)
+				}
+
 				taskListAppendLock.Lock()
 				newModelTaskList = append(newModelTaskList, *task)
 				taskListAppendLock.Unlock()
@@ -874,6 +878,7 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 		}
 		taskList.Tasks = modelTaskList
 	} else {
+		_ = sortTaskList(&modelTaskList, "pid", false)
 		taskList.Tasks = makeTaskTree(&modelTaskList)
 	}
 
