@@ -9,7 +9,6 @@ import (
 	"hcc/tuba/model"
 	"innogrid.com/hcloud-classic/hcc_errors"
 	"innogrid.com/hcloud-classic/pb"
-	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -83,50 +82,45 @@ func getPIDList() ([]pid, error) {
 		_ = d.Close()
 	}()
 
-	for {
-		names, err := d.Readdirnames(10)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		var wait sync.WaitGroup
-		var pidListAppendLock sync.Mutex
-
-		wait.Add(len(names))
-		for _, name := range names {
-			go func(routineName string) {
-				var _pid int64
-				var pidExist bool
-				var err error
-
-				// We only care if the name starts with a numeric
-				if routineName[0] < '0' || routineName[0] > '9' {
-					goto OUT
-				}
-
-				// From this point forward, any errors we just ignore, because
-				// it might simply be that the process doesn't exist anymore.
-				_pid, err = strconv.ParseInt(routineName, 10, 0)
-				if err != nil {
-					goto OUT
-				}
-
-				pidListAppendLock.Lock()
-				pidExist = isPIDExist(&oldPIDList, int(_pid))
-				pidList = append(pidList, pid{
-					pid:   int(_pid),
-					isNew: pidExist,
-				})
-				pidListAppendLock.Unlock()
-			OUT:
-				wait.Done()
-			}(name)
-		}
-		wait.Wait()
+	names, err := d.Readdirnames(0)
+	if err != nil {
+		return nil, err
 	}
+
+	var wait sync.WaitGroup
+	var pidListAppendLock sync.Mutex
+
+	wait.Add(len(names))
+	for _, name := range names {
+		go func(routineName string) {
+			var _pid int64
+			var pidExist bool
+			var err error
+
+			// We only care if the name starts with a numeric
+			if routineName[0] < '0' || routineName[0] > '9' {
+				goto OUT
+			}
+
+			// From this point forward, any errors we just ignore, because
+			// it might simply be that the process doesn't exist anymore.
+			_pid, err = strconv.ParseInt(routineName, 10, 0)
+			if err != nil {
+				goto OUT
+			}
+
+			pidListAppendLock.Lock()
+			pidExist = isPIDExist(&oldPIDList, int(_pid))
+			pidList = append(pidList, pid{
+				pid:   int(_pid),
+				isNew: pidExist,
+			})
+			pidListAppendLock.Unlock()
+		OUT:
+			wait.Done()
+		}(name)
+	}
+	wait.Wait()
 
 	return pidList, nil
 }
@@ -780,87 +774,87 @@ func ReadTaskList(reqGetTaskList *pb.ReqGetTaskList) (*pb.ResGetTaskList, uint64
 
 	wait.Add(pidListLen)
 	for _, p := range pidList {
-			go func(routinePID pid) {
-				var task *model.Task
-				var pid int
-				var threadsPIDs []int
-				var oldThreadsPIDs []int
+		go func(routinePID pid) {
+			var task *model.Task
+			var pid int
+			var threadsPIDs []int
+			var oldThreadsPIDs []int
 
-				task = getTask(routinePID)
-				if task == nil {
-					goto OUT
+			task = getTask(routinePID)
+			if task == nil {
+				goto OUT
+			}
+
+			if !routinePID.isNew {
+				oldTask := findTaskFromModelTaskList(task.PID)
+				if oldTask != nil {
+					for _, thread := range oldTask.Threads {
+						oldThreadsPIDs = append(oldThreadsPIDs, thread.PID)
+					}
+				}
+			}
+
+			if !hideThreads {
+				pid = task.PID
+				threadsPIDs, err = getThreadsPIDs(pid)
+				if err != nil {
+					fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
 				}
 
-				if !routinePID.isNew {
-					oldTask := findTaskFromModelTaskList(task.PID)
-					if oldTask != nil {
-						for _, thread := range oldTask.Threads {
-							oldThreadsPIDs = append(oldThreadsPIDs, thread.PID)
+				var wait2 sync.WaitGroup
+
+				wait2.Add(len(threadsPIDs))
+				for _, threadPID := range threadsPIDs {
+					go func(routinePID int, routineThreadPID int) {
+						var isNew bool
+						var thread *model.Task
+
+						if routinePID == routineThreadPID {
+							goto OUT2
 						}
-					}
+
+						isNew = isThreadExist(&oldThreadsPIDs, routineThreadPID)
+						thread = getThread(task, routineThreadPID, isNew)
+						if thread == nil {
+							goto OUT2
+						}
+
+						totalThreadsLock.Lock()
+						threads++
+						totalThreadsLock.Unlock()
+
+						if needSorting {
+							taskListAppendLock.Lock()
+							newModelTaskList = append(newModelTaskList, *thread)
+							taskListAppendLock.Unlock()
+						} else {
+							taskThreadListAppendLock.Lock()
+							task.Threads = append(task.Threads, *thread)
+							taskThreadListAppendLock.Unlock()
+						}
+
+					OUT2:
+						wait2.Done()
+						return
+					}(pid, threadPID)
 				}
+				wait2.Wait()
+			}
 
-				if !hideThreads {
-					pid = task.PID
-					threadsPIDs, err = getThreadsPIDs(pid)
-					if err != nil {
-						fmt.Printf("getThreadsPIDs(): PID: %d, Error: %s\n", pid, err.Error())
-					}
+			if !needSorting {
+				_ = sortTaskList(&task.Threads, "pid", false)
+			}
 
-					var wait2 sync.WaitGroup
+			taskListAppendLock.Lock()
+			newModelTaskList = append(newModelTaskList, *task)
+			taskListAppendLock.Unlock()
 
-					wait2.Add(len(threadsPIDs))
-					for _, threadPID := range threadsPIDs {
-						go func(routinePID int, routineThreadPID int) {
-							var isNew bool
-							var thread *model.Task
-
-							if routinePID == routineThreadPID {
-								goto OUT2
-							}
-
-							isNew = isThreadExist(&oldThreadsPIDs, routineThreadPID)
-							thread = getThread(task, routineThreadPID, isNew)
-							if thread == nil {
-								goto OUT2
-							}
-
-							totalThreadsLock.Lock()
-							threads++
-							totalThreadsLock.Unlock()
-
-							if needSorting {
-								taskListAppendLock.Lock()
-								newModelTaskList = append(newModelTaskList, *thread)
-								taskListAppendLock.Unlock()
-							} else {
-								taskThreadListAppendLock.Lock()
-								task.Threads = append(task.Threads, *thread)
-								taskThreadListAppendLock.Unlock()
-							}
-
-						OUT2:
-							wait2.Done()
-							return
-						}(pid, threadPID)
-					}
-					wait2.Wait()
-				}
-
-				if !needSorting {
-					_ = sortTaskList(&task.Threads, "pid", false)
-				}
-
-				taskListAppendLock.Lock()
-				newModelTaskList = append(newModelTaskList, *task)
-				taskListAppendLock.Unlock()
-
-			OUT:
-				wait.Done()
-				return
-			}(p)
-		}
-		wait.Wait()
+		OUT:
+			wait.Done()
+			return
+		}(p)
+	}
+	wait.Wait()
 
 	modelTaskList = newModelTaskList
 
