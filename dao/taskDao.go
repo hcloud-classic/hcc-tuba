@@ -7,8 +7,6 @@ import (
 	"hcc/tuba/lib/fileutil"
 	"hcc/tuba/lib/syscheck"
 	"hcc/tuba/model"
-	"innogrid.com/hcloud-classic/hcc_errors"
-	"innogrid.com/hcloud-classic/pb"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -20,6 +18,9 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"innogrid.com/hcloud-classic/hcc_errors"
+	"innogrid.com/hcloud-classic/pb"
 )
 
 var modelTaskList []model.Task
@@ -433,7 +434,7 @@ func getTask(pid pid) *model.Task {
 		MemRes:     "error",
 		MemShr:     "error",
 		MemPercent: "error",
-		EPMTarget:  0,
+		GPMTarget:  0,
 		IsThread:   false,
 	}
 
@@ -459,9 +460,9 @@ func getTask(pid pid) *model.Task {
 		return nil
 	}
 
-	if syscheck.EPMProcSupported {
-		target, _ := strconv.Atoi(getProcData(_pid, "epm_target"))
-		task.EPMTarget = target
+	if syscheck.GPMProcSupported {
+		target, _ := strconv.Atoi(getProcData(_pid, "gpm_target"))
+		task.GPMTarget = target
 	}
 
 	return &task
@@ -503,7 +504,7 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 		MemRes:     parent.MemRes,
 		MemShr:     parent.MemShr,
 		MemPercent: parent.MemPercent,
-		EPMTarget:  0,
+		GPMTarget:  0,
 		IsThread:   true,
 	}
 
@@ -527,9 +528,9 @@ func getThread(parent *model.Task, spid int, isNew bool) *model.Task {
 		return nil
 	}
 
-	if syscheck.EPMProcSupported {
-		target, _ := strconv.Atoi(getProcData(spid, "epm_target"))
-		task.EPMTarget = target
+	if syscheck.GPMProcSupported {
+		target, _ := strconv.Atoi(getProcData(spid, "gpm_target"))
+		task.GPMTarget = target
 	}
 
 	return &task
@@ -581,7 +582,7 @@ func checkSortingMethod(sortBy string) error {
 	sortBy = strings.ToLower(sortBy)
 
 	switch sortBy {
-	case "cmd", "state", "pid", "user", "ppid", "priority", "nice", "time", "cpu_usage", "mem_virt", "mem_res", "mem_shr", "mem_percent", "epm_target", "cmdline":
+	case "cmd", "state", "pid", "user", "ppid", "priority", "nice", "time", "cpu_usage", "mem_virt", "mem_res", "mem_shr", "mem_percent", "gpm_target", "cmdline":
 		goto OUT
 	default:
 		return errors.New("unknown sorting method")
@@ -686,12 +687,12 @@ func sortTaskList(taskList *[]model.Task, sortBy string, reverse bool) error {
 			}
 			return (*taskList)[i].MemPercent < (*taskList)[j].MemPercent
 		})
-	case "epm_target":
+	case "gpm_target":
 		sort.Slice(*taskList, func(i, j int) bool {
 			if reverse {
-				return (*taskList)[i].EPMTarget > (*taskList)[j].EPMTarget
+				return (*taskList)[i].GPMTarget > (*taskList)[j].GPMTarget
 			}
-			return (*taskList)[i].EPMTarget < (*taskList)[j].EPMTarget
+			return (*taskList)[i].GPMTarget < (*taskList)[j].GPMTarget
 		})
 	case "cmdline":
 		sort.Slice(*taskList, func(i, j int) bool {

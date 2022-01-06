@@ -21,7 +21,7 @@ type Task struct {
 	MemRes     string `json:"mem_res"`
 	MemShr     string `json:"mem_shr"`
 	MemPercent string `json:"mem_percent"`
-	EPMTarget  int    `json:"epm_target"`
+	GPMTarget  int    `json:"gpm_target"`
 	CMDLine    string `json:"cmdline"`
 	IsThread   bool   `json:"is_thread"`
 }

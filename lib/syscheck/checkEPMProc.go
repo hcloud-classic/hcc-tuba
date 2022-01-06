@@ -4,20 +4,20 @@ import (
 	"hcc/tuba/lib/fileutil"
 )
 
-// EPMProcSupported : Has value of EPMProc is supported by the kernel
-var EPMProcSupported = false
+// GPMProcSupported : Has value of GPMProc is supported by the kernel
+var GPMProcSupported = false
 
-func isEPMProcSupported() bool {
-	if fileutil.IsFileOrDirectoryExist("/proc/1/epm_type") {
+func isGPMProcSupported() bool {
+	if fileutil.IsFileOrDirectoryExist("/proc/1/gpm_type") {
 		return true
 	}
 
 	return false
 }
 
-// CheckEPMProc : Check if EPMProc is supported by the kernel
-func CheckEPMProc() {
-	if isEPMProcSupported() {
-		EPMProcSupported = true
+// CheckGPMProc : Check if GPMProc is supported by the kernel
+func CheckGPMProc() {
+	if isGPMProcSupported() {
+		GPMProcSupported = true
 	}
 }
