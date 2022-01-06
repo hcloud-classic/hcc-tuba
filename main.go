@@ -8,11 +8,12 @@ import (
 	"hcc/tuba/lib/logger"
 	"hcc/tuba/lib/pid"
 	"hcc/tuba/lib/syscheck"
-	"innogrid.com/hcloud-classic/hcc_errors"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+
+	"innogrid.com/hcloud-classic/hcc_errors"
 )
 
 func init() {
@@ -53,11 +54,11 @@ func init() {
 		panic(err)
 	}
 
-	syscheck.CheckEPMProc()
-	if syscheck.EPMProcSupported {
-		fmt.Println("EPMProc is supported by the kernel")
+	syscheck.CheckGPMProc()
+	if syscheck.GPMProcSupported {
+		fmt.Println("GPMProc is supported by the kernel")
 	} else {
-		fmt.Println("EPMProc is not supported in this system")
+		fmt.Println("GPMProc is not supported in this system")
 	}
 
 	err = syscheck.CheckRoot()
