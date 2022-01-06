@@ -47,7 +47,7 @@ goreport: goreport_dep ## Make goreport
 	@./hcloud-badge/hcloud_badge.sh ${PROJECT_NAME}
 
 build: ## Build the binary file
-	@$(GOROOT)/bin/go build -o ${PROJECT_NAME} main.go
+	@CGO_ENABLED=0 $(GOROOT)/bin/go build -o ${PROJECT_NAME} main.go
 
 clean: ## Remove previous build
 	@rm -f ${PROJECT_NAME}
